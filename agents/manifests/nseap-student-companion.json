@@ -1,0 +1,66 @@
+{
+  "agent_id": "student-companion-nseap",
+  "agent_type": "student-companion",
+  "manifest_version": "1.0.0",
+  "display_name": "NSEAP Student Companion",
+  "description": "学生端 Companion Agent——通过 NSEAP CLI 运行在学生本地机器上，接收用户指令、生成提交请求、管理个人作品集。与 WebApp fallback 并行，提供命令行 + 自然语言交互方式。",
+  "capabilities": [
+    {
+      "capability_id": "cap-project-submission",
+      "name": "项目提交",
+      "description": "接收学生指令，生成提交请求并发送至 Submission Task Agent"
+    },
+    {
+      "capability_id": "cap-challenge-query",
+      "name": "挑战查询",
+      "description": "查询可用的 Challenge 列表和详情"
+    },
+    {
+      "capability_id": "cap-portfolio-management",
+      "name": "作品集管理",
+      "description": "查看和管理个人作品集，控制公开/私有状态"
+    },
+    {
+      "capability_id": "cap-status-query",
+      "name": "提交状态查询",
+      "description": "查询提交的处理状态和评审结果"
+    }
+  ],
+  "interfaces": [
+    {
+      "interface_name": "submitChallenge",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "studentId": { "type": "string" },
+          "challengeId": { "type": "string" },
+          "projectTitle": { "type": "string" },
+          "githubRepoUrl": { "type": "string" },
+          "aarText": { "type": "string" },
+          "selfEvaluationText": { "type": "string" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "submissionId": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "permissions": [
+    { "permission_id": "perm-submission-create", "scope": "submission:create" },
+    { "permission_id": "perm-submission-read", "scope": "submission:read" },
+    { "permission_id": "perm-challenge-read", "scope": "challenge:read" },
+    { "permission_id": "perm-portfolio-read", "scope": "portfolio:read" }
+  ],
+  "trusted_agents": ["submission-task-agent-001"],
+  "channel_bindings": [
+    { "channel_type": "web", "channel_id": "nseap" }
+  ],
+  "owner": { "owner_type": "system", "owner_id": "nseap-platform" },
+  "memory_binding": [
+    { "ontology_path": "nseap:memory:agent:student-companion-hermes" }
+  ]
+}

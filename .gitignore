@@ -1,0 +1,15 @@
+node_modules/
+.npm-cache/
+.redis-data/
+.richard-analysis/
+.next/
+.next-dev/
+.next-pytest/
+.pytest_cache/
+__pycache__/
+.env*.local
+.env
+*.log
+tsconfig.tsbuildinfo
+.env.local.bak
+.env*.bak

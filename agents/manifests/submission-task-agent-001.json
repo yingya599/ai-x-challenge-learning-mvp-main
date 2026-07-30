@@ -1,0 +1,81 @@
+{
+  "agent_id": "submission-task-agent-001",
+  "agent_type": "submission-task",
+  "manifest_version": "1.0.0",
+  "display_name": "Submission Task Agent 001",
+  "description": "提交任务 Agent——系统中唯一有权写入最终 Submission Record 的 Agent（架构红线）。接收 Student Companion 的提交请求，执行身份校验、GitHub 指针验证、路由评审、写入记录。",
+  "capabilities": [
+    {
+      "capability_id": "cap-submission-write",
+      "name": "提交记录写入",
+      "description": "向飞书 Submissions 表写入最终提交记录（仅此 Agent 有此权限）"
+    },
+    {
+      "capability_id": "cap-github-verify",
+      "name": "GitHub 指针验证",
+      "description": "校验提交关联的 GitHub 仓库是否存在、README 是否齐全"
+    },
+    {
+      "capability_id": "cap-review-routing",
+      "name": "评审路由",
+      "description": "将提交路由至 Review Task Agent 生成 AI 初评"
+    },
+    {
+      "capability_id": "cap-audit-logging",
+      "name": "审计日志",
+      "description": "每一步状态变更均记录审计日志"
+    }
+  ],
+  "interfaces": [
+    {
+      "interface_name": "submitChallengeProject",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "studentId": { "type": "string" },
+          "challengeId": { "type": "string" },
+          "projectTitle": { "type": "string" },
+          "githubRepoUrl": { "type": "string" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "submissionId": { "type": "string" },
+          "error": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "permissions": [
+    {
+      "permission_id": "perm-submission-write",
+      "scope": "submission:write"
+    },
+    {
+      "permission_id": "perm-submission-read",
+      "scope": "submission:read"
+    },
+    {
+      "permission_id": "perm-feishu-write",
+      "scope": "feishu:write"
+    },
+    {
+      "permission_id": "perm-audit-write",
+      "scope": "audit:write"
+    }
+  ],
+  "trusted_agents": ["student-companion-webapp-fallback", "review-task-agent-001"],
+  "channel_bindings": [
+    {
+      "channel_type": "web",
+      "channel_id": "webapp"
+    }
+  ],
+  "owner": { "owner_type": "system", "owner_id": "nseap-platform" },
+  "memory_binding": [
+    { "ontology_path": "nseap:memory:agent:submission-task-agent-001" }
+  ],
+  "admin_identity_mode": "teacher_delegated"
+}

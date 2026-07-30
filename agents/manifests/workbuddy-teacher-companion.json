@@ -1,0 +1,85 @@
+{
+  "agent_id": "teacher-companion-workbuddy",
+  "agent_type": "teacher-companion",
+  "manifest_version": "1.0.0",
+  "display_name": "WorkBuddy Teacher Companion",
+  "description": "教师端 Companion Agent——通过 WorkBuddy 桌面端运行在教师本地机器上，接收教师指令、发布 Challenge、评审提交、管理班级。与 WebApp fallback 并行，提供图形化 + 自然语言交互方式。",
+  "capabilities": [
+    {
+      "capability_id": "cap-challenge-publish",
+      "name": "发布 Challenge",
+      "description": "创建并发布新的挑战任务至飞书 Challenges 表"
+    },
+    {
+      "capability_id": "cap-submission-review",
+      "name": "提交评审",
+      "description": "对学生提交进行终评（accept/return），更新状态和评分"
+    },
+    {
+      "capability_id": "cap-class-management",
+      "name": "班级管理",
+      "description": "查看全班提交进度、评审状态、导出成绩"
+    },
+    {
+      "capability_id": "cap-peer-allocation",
+      "name": "同伴互评管理",
+      "description": "配置和管理同伴互评分配策略"
+    }
+  ],
+  "interfaces": [
+    {
+      "interface_name": "publishChallenge",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "brief": { "type": "string" },
+          "objective": { "type": "string" },
+          "deliverables": { "type": "string" },
+          "rubric": { "type": "string" },
+          "deadline": { "type": "string" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "challengeId": { "type": "string" }
+        }
+      }
+    },
+    {
+      "interface_name": "finalizeReview",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "submissionId": { "type": "string" },
+          "action": { "type": "string", "enum": ["accept", "return"] },
+          "score": { "type": "number" },
+          "feedback": { "type": "string" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "evaluationId": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "permissions": [
+    { "permission_id": "perm-challenge-write", "scope": "challenge:write" },
+    { "permission_id": "perm-submission-read", "scope": "submission:read" },
+    { "permission_id": "perm-evaluation-write", "scope": "evaluation:write" },
+    { "permission_id": "perm-student-read", "scope": "student:read" }
+  ],
+  "trusted_agents": ["submission-task-agent-001"],
+  "channel_bindings": [
+    { "channel_type": "web", "channel_id": "workbuddy" }
+  ],
+  "owner": { "owner_type": "teacher", "owner_id": "teacher-001" },
+  "memory_binding": [
+    { "ontology_path": "nseap:memory:teacher:teacher-001" }
+  ]
+}

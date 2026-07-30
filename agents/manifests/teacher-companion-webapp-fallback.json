@@ -1,0 +1,84 @@
+{
+  "agent_id": "teacher-companion-webapp-fallback",
+  "agent_type": "teacher-companion",
+  "manifest_version": "1.0.0",
+  "display_name": "Teacher Companion (WebApp Fallback)",
+  "description": "WebApp 前端 fallback 模式下的教师助手 Agent。代表教师发布 Challenge、进行终评，不具备读取学生长期记忆的权限。",
+  "capabilities": [
+    {
+      "capability_id": "cap-challenge-publish",
+      "name": "Challenge 发布",
+      "description": "构造 challenge_publish 消息信封，发布新 Challenge 到飞书"
+    },
+    {
+      "capability_id": "cap-teacher-review",
+      "name": "教师终评",
+      "description": "构造 manual_review_adjustment 消息信封，提交教师终评分数与评语"
+    },
+    {
+      "capability_id": "cap-submission-read",
+      "name": "提交记录查看",
+      "description": "查看全班学生的提交记录和评审状态"
+    }
+  ],
+  "interfaces": [
+    {
+      "interface_name": "publishChallenge",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "title": { "type": "string" },
+          "brief": { "type": "string" },
+          "deliverables": { "type": "string" },
+          "rubric": { "type": "string" },
+          "deadline": { "type": "string" }
+        }
+      }
+    },
+    {
+      "interface_name": "submitReview",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "submissionId": { "type": "string" },
+          "action": { "type": "string", "enum": ["accept", "return"] },
+          "score": { "type": "number" },
+          "feedback": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "permissions": [
+    {
+      "permission_id": "perm-challenge-publish",
+      "scope": "challenge:publish"
+    },
+    {
+      "permission_id": "perm-challenge-read",
+      "scope": "challenge:read"
+    },
+    {
+      "permission_id": "perm-submission-read",
+      "scope": "submission:read"
+    },
+    {
+      "permission_id": "perm-evaluation-write",
+      "scope": "evaluation:write"
+    },
+    {
+      "permission_id": "perm-student-read",
+      "scope": "student:read"
+    }
+  ],
+  "trusted_agents": ["submission-task-agent-001"],
+  "channel_bindings": [
+    {
+      "channel_type": "web",
+      "channel_id": "webapp"
+    }
+  ],
+  "owner": { "owner_type": "system", "owner_id": "nseap-platform" },
+  "memory_binding": [
+    { "ontology_path": "nseap:memory:agent:teacher-companion-webapp-fallback" }
+  ]
+}

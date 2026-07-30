@@ -1,0 +1,71 @@
+{
+  "agent_id": "review-task-agent-001",
+  "agent_type": "review-task",
+  "manifest_version": "1.0.0",
+  "display_name": "Review Task Agent 001",
+  "description": "评审任务 Agent——接收 Submission Task Agent 的评审请求，调用 AI（DeepSeek）对提交做 5 维度初评打分，生成评语和建议，写入 Evaluations 表。",
+  "capabilities": [
+    {
+      "capability_id": "cap-ai-evaluation",
+      "name": "AI 初评",
+      "description": "对提交项目做 5 维度评估：问题理解、AI 使用、产出完整性、技术执行、反思质量"
+    },
+    {
+      "capability_id": "cap-portfolio-generation",
+      "name": "作品集描述生成",
+      "description": "生成对外展示的项目描述和技能标签"
+    },
+    {
+      "capability_id": "cap-evaluation-write",
+      "name": "评价记录写入",
+      "description": "向飞书 Evaluations 表写入 AI 初评结果"
+    }
+  ],
+  "interfaces": [
+    {
+      "interface_name": "evaluateSubmission",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "student": { "type": "object" },
+          "challenge": { "type": "object" },
+          "submission": { "type": "object" },
+          "githubCheck": { "type": "object" }
+        }
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "scoreTotal": { "type": "number" },
+          "scores": { "type": "object" },
+          "feedback": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "permissions": [
+    {
+      "permission_id": "perm-evaluation-write",
+      "scope": "evaluation:write"
+    },
+    {
+      "permission_id": "perm-evaluation-read",
+      "scope": "evaluation:read"
+    },
+    {
+      "permission_id": "perm-ai-invoke",
+      "scope": "ai:invoke"
+    }
+  ],
+  "trusted_agents": ["submission-task-agent-001"],
+  "channel_bindings": [
+    {
+      "channel_type": "web",
+      "channel_id": "webapp"
+    }
+  ],
+  "owner": { "owner_type": "system", "owner_id": "nseap-platform" },
+  "memory_binding": [
+    { "ontology_path": "nseap:memory:agent:review-task-agent-001" }
+  ]
+}

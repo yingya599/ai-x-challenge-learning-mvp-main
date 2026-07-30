@@ -1,0 +1,30 @@
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: nseap-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  app:
+    build: .
+    container_name: nseap-app
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.local
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis_data:

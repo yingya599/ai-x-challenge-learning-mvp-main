@@ -1,0 +1,57 @@
+{
+  "agent_id": "student-companion-webapp-fallback",
+  "agent_type": "student-companion",
+  "manifest_version": "1.0.0",
+  "display_name": "Student Companion (WebApp Fallback)",
+  "description": "WebApp 前端 fallback 模式下的学生助手 Agent。代表学生发起提交请求，但不具备直接写入 Submission Record 的权限。",
+  "capabilities": [
+    {
+      "capability_id": "cap-submission-request",
+      "name": "提交请求构造",
+      "description": "构造符合 P3394 规范的 submission_request 消息信封"
+    },
+    {
+      "capability_id": "cap-self-evaluation",
+      "name": "自评辅助",
+      "description": "辅助学生整理项目总结、AAR 复盘和自评文本"
+    }
+  ],
+  "interfaces": [
+    {
+      "interface_name": "submitChallenge",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "studentId": { "type": "string" },
+          "challengeId": { "type": "string" },
+          "githubRepoUrl": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "permissions": [
+    {
+      "permission_id": "perm-submission-request",
+      "scope": "submission:request"
+    },
+    {
+      "permission_id": "perm-challenge-read",
+      "scope": "challenge:read"
+    },
+    {
+      "permission_id": "perm-portfolio-read",
+      "scope": "portfolio:read"
+    }
+  ],
+  "trusted_agents": ["submission-task-agent-001"],
+  "channel_bindings": [
+    {
+      "channel_type": "web",
+      "channel_id": "webapp"
+    }
+  ],
+  "owner": { "owner_type": "system", "owner_id": "nseap-platform" },
+  "memory_binding": [
+    { "ontology_path": "nseap:memory:agent:student-companion-webapp-fallback" }
+  ]
+}

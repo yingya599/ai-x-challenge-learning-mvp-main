@@ -1,0 +1,34 @@
+{
+  "agent_id": "student-companion-zhanghao-001",
+  "agent_type": "student-companion",
+  "manifest_version": "1.0.0",
+  "display_name": "张浩的 Student Companion",
+  "description": "张浩的独立学生 Companion Agent。每个学生一个独立 Agent（AGENT_CN.md §2.2），负责接收提交指令、检查 workspace、构造提交请求并发送至 Submission Task Agent。",
+  "capabilities": [
+    { "capability_id": "cap-project-submission", "name": "项目提交请求" },
+    { "capability_id": "cap-challenge-query", "name": "挑战查询" },
+    { "capability_id": "cap-portfolio-view", "name": "作品集查看" },
+    { "capability_id": "cap-status-check", "name": "提交状态检查" }
+  ],
+  "interfaces": [
+    {
+      "interface_name": "requestSubmission",
+      "input_schema": { "type": "object", "properties": {} },
+      "output_schema": { "type": "object", "properties": {} }
+    }
+  ],
+  "permissions": [
+    { "permission_id": "perm-submission-create", "scope": "submission:create" },
+    { "permission_id": "perm-submission-read-self", "scope": "submission:read:self" },
+    { "permission_id": "perm-challenge-read", "scope": "challenge:read" }
+  ],
+  "trusted_agents": ["submission-task-agent-001"],
+  "channel_bindings": [
+    { "channel_type": "feishu", "channel_id": "bot-student-zhanghao" },
+    { "channel_type": "web", "channel_id": "webapp" }
+  ],
+  "owner": { "owner_type": "student", "owner_id": "zhanghao" },
+  "memory_binding": [
+    { "ontology_path": "nseap:memory:student:zhanghao" }
+  ]
+}
