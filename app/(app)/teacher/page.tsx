@@ -307,6 +307,9 @@ export default function TeacherPage() {
       <div className="rounded-xl border border-gray-200 bg-white">
         <div className="border-b border-gray-100 px-5 py-3">
           <h3 className="text-base font-semibold text-gray-900">挑战概览</h3>
+          <p className="mt-0.5 text-xs text-gray-500">
+            点击任意 Challenge 或右侧查看按钮进入详情页。
+          </p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -330,8 +333,15 @@ export default function TeacherPage() {
               </tr>
               {challengeStats.map((cs) => (
                 <tr key={cs.challenge.id}
-                  className={`hover:bg-gray-50 cursor-pointer ${selectedChallenge === cs.challenge.id ? "bg-primary-50" : ""}`}
-                  onClick={() => setSelectedChallenge(cs.challenge.id === selectedChallenge ? null : cs.challenge.id)}>
+                  role="link"
+                  tabIndex={0}
+                  className="cursor-pointer hover:bg-primary-50/60 focus:bg-primary-50/60 focus:outline-none"
+                  onClick={() => router.push(`/challenges/${encodeURIComponent(cs.challenge.id)}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      router.push(`/challenges/${encodeURIComponent(cs.challenge.id)}`);
+                    }
+                  }}>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-mono text-gray-400">{cs.challenge.number || cs.challenge.id}</span>
@@ -344,15 +354,15 @@ export default function TeacherPage() {
                   </td>
                   <td className="px-5 py-3 text-center text-gray-700">{cs.avgScore || "—"}</td>
                   <td className="px-5 py-3 text-center">
-                    {cs.challenge.github_repo ? (
-                      <a href={cs.challenge.github_repo} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-gray-400 hover:text-gray-700 transition-colors"
-                        onClick={(e) => e.stopPropagation()} title="查看挑战资料">
-                        <Github className="h-4 w-4" />
-                      </a>
-                    ) : (
-                      <Eye className="inline h-4 w-4 text-gray-400" />
-                    )}
+                    <Link
+                      href={`/challenges/${encodeURIComponent(cs.challenge.id)}`}
+                      className="inline-flex items-center rounded-md p-1.5 text-gray-400 transition-colors hover:bg-primary-100 hover:text-primary-700"
+                      onClick={(event) => event.stopPropagation()}
+                      title="查看 Challenge 详情"
+                      aria-label={`查看 ${cs.challenge.title} 详情`}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Link>
                   </td>
                 </tr>
               ))}
