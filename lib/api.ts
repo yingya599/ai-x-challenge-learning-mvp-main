@@ -35,6 +35,8 @@ type BackendPortfolioItem = {
   demo_url?: string;
   is_public?: boolean;
   created_at?: string;
+  ai_score?: number;
+  teacher_score?: number;
 };
 
 export async function fetchChallenges(): Promise<{ items: Challenge[]; live: boolean }> {
@@ -120,12 +122,14 @@ export async function fetchChallengeById(
   }
 }
 
-export async function fetchPortfolio(): Promise<{ items: PortfolioItem[]; live: boolean }> {
+export async function fetchPortfolio(): Promise<{ items: PortfolioItem[]; live: boolean; error?: string }> {
   try {
     const res = await fetch("/api/portfolio");
     const data = await res.json();
     const list = data.portfolioItems ?? data.items;
-    if (!data.ok || !Array.isArray(list)) throw new Error();
+    if (!res.ok || !data.ok || !Array.isArray(list)) {
+      throw new Error(data.error || "作品集服务暂时不可用");
+    }
     const items: PortfolioItem[] = (list as BackendPortfolioItem[]).map((p) => ({
       id: p.portfolio_item_id || p.submission_id || p.title,
       studentName: p.student_name,
@@ -136,13 +140,26 @@ export async function fetchPortfolio(): Promise<{ items: PortfolioItem[]; live: 
       techStack: (p.skills || "").split(",").map((s) => s.trim()).filter(Boolean),
       demoUrl: p.demo_url || undefined,
       githubRepo: (p.github_url || "").replace(/^https?:\/\/github\.com\//, ""),
-      aiScore: 0,
+      aiScore: typeof p.ai_score === "number" ? p.ai_score : undefined,
+      teacherScore: typeof p.teacher_score === "number" ? p.teacher_score : undefined,
       isPublic: p.is_public ?? true,
       submittedAt: p.created_at || "",
     }));
     return { items, live: true };
-  } catch {
-    return { items: mockPortfolio, live: false };
+  } catch (error) {
+    // P0-6：只有显式开启的本地开发演示模式才允许使用 Mock。
+    // 正式环境和默认开发环境均失败关闭，避免把示例作品误认为真实数据。
+    const allowMock =
+      process.env.NODE_ENV === "development" &&
+      process.env.NEXT_PUBLIC_ENABLE_PORTFOLIO_MOCK === "true";
+    if (allowMock) {
+      return { items: mockPortfolio, live: false, error: "当前为 Portfolio Mock 演示模式" };
+    }
+    return {
+      items: [],
+      live: false,
+      error: error instanceof Error ? error.message : "作品集服务暂时不可用",
+    };
   }
 }
 
