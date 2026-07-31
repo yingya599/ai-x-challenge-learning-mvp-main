@@ -292,6 +292,12 @@ export type SubmissionListItem = {
   project_title: string;
   project_summary?: string;
   github_repo_url?: string;
+  github_branch?: string;
+  github_commit?: string;
+  demo_url?: string;
+  readme_url?: string;
+  aar_text?: string;
+  self_evaluation_text?: string;
   status?: string;
   task_state?: string;
   review_mode?: string;
@@ -332,6 +338,27 @@ export async function fetchSubmissionById(id: string): Promise<{ ok: boolean; su
     return await res.json();
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "加载失败" };
+  }
+}
+
+export async function submitTeacherReview(input: {
+  submissionId: string;
+  action: "accept" | "return";
+  score: number;
+  feedback: string;
+}): Promise<{ ok: boolean; message?: string; error?: string }> {
+  try {
+    const res = await fetch("/api/evaluations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    return await res.json();
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "提交评审失败",
+    };
   }
 }
 

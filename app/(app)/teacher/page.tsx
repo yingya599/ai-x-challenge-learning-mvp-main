@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   Users, CheckCircle2, Clock, Search, ChevronRight,
   Star, Download, Github, Eye,
 } from "lucide-react";
-import { fetchSubmissions, fetchStudents, fetchChallenges, fetchSubmissionById, type SubmissionListItem, type StudentInfo, type EvaluationData } from "@/lib/api";
+import { fetchSubmissions, fetchStudents, fetchChallenges, type SubmissionListItem, type StudentInfo } from "@/lib/api";
 import { formatDateShort } from "@/lib/format";
 import type { Challenge } from "@/lib/data";
 
@@ -25,12 +25,11 @@ interface SubmissionRow {
 }
 
 export default function TeacherPage() {
-  const searchParams = useSearchParams();
-  const challengeIdFromQuery = searchParams.get("challengeId");
-  const notice = searchParams.get("notice");
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
-  const [selectedChallenge, setSelectedChallenge] = useState<string | null>(challengeIdFromQuery);
+  const [selectedChallenge, setSelectedChallenge] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
   const [challenges, setChallenges] = useState<(Challenge & { github_repo?: string })[]>([]);
 
   // Publish form
@@ -79,14 +78,6 @@ export default function TeacherPage() {
     ],
   };
 
-  // Review modal
-  const [reviewTarget, setReviewTarget] = useState<SubmissionRow | null>(null);
-  const [reviewScore, setReviewScore] = useState(80);
-  const [reviewFeedback, setReviewFeedback] = useState("");
-  const [reviewLoading, setReviewLoading] = useState(false);
-  const [reviewResult, setReviewResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [reviewAiEval, setReviewAiEval] = useState<EvaluationData | null>(null);
-
   const [realSubmissions, setRealSubmissions] = useState<SubmissionListItem[] | null>(null);
   const [subsLoading, setSubsLoading] = useState(true);
   const [students, setStudents] = useState<StudentInfo[]>([]);
@@ -105,8 +96,10 @@ export default function TeacherPage() {
   }, []);
 
   useEffect(() => {
-    setSelectedChallenge(challengeIdFromQuery);
-  }, [challengeIdFromQuery]);
+    const query = new URLSearchParams(window.location.search);
+    setSelectedChallenge(query.get("challengeId"));
+    setNotice(query.get("notice") || "");
+  }, []);
 
   const submissions: SubmissionRow[] = (realSubmissions || []).map((s) => ({
     id: s.submission_id,
@@ -149,39 +142,6 @@ export default function TeacherPage() {
   const totalSubmissions = submissions.length;
   const reviewedCount = submissions.filter((s) => s.status === "已评分").length;
   const pendingCount = submissions.filter((s) => s.status === "待评审").length;
-
-  // Review actions
-  const handleReview = async (action: "accept" | "return") => {
-    if (!reviewTarget) return;
-    setReviewLoading(true);
-    setReviewResult(null);
-    try {
-      const res = await fetch("/api/evaluations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          submissionId: reviewTarget.id,
-          action,
-          score: reviewScore,
-          feedback: reviewFeedback || (action === "accept" ? "通过" : "需要修改"),
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setReviewResult({ ok: true, message: `${action === "accept" ? "确认通过" : "打回修改"}成功` });
-        setReviewTarget(null);
-        setReviewFeedback("");
-        fetchSubmissions().then((r) => {
-          if (r.ok && r.submissions) setRealSubmissions(r.submissions);
-        });
-      } else {
-        setReviewResult({ ok: false, message: data.error || "操作失败" });
-      }
-    } catch {
-      setReviewResult({ ok: false, message: "网络错误" });
-    }
-    setReviewLoading(false);
-  };
 
   const handlePublish = async () => {
     setPubLoading(true);
@@ -435,12 +395,27 @@ export default function TeacherPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredSubs.map((sub) => (
-                <tr key={sub.id} className="hover:bg-gray-50">
+                <tr
+                  key={sub.id}
+                  role="link"
+                  tabIndex={0}
+                  className="cursor-pointer hover:bg-primary-50/60 focus:bg-primary-50/60 focus:outline-none"
+                  onClick={() => router.push(`/teacher/reviews/${sub.id}`)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") router.push(`/teacher/reviews/${sub.id}`);
+                  }}
+                >
                   <td className="px-5 py-4"><div className="flex items-center gap-2"><div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary-100 text-xs font-bold text-primary-700">{sub.studentName.charAt(0)}</div><span className="font-medium text-gray-900">{sub.studentName}</span></div></td>
                   <td className="px-5 py-4 text-gray-700">{sub.challengeTitle}</td>
                   <td className="px-5 py-4">
                     {sub.githubRepoUrl ? (
-                      <a href={sub.githubRepoUrl} target="_blank" rel="noopener noreferrer" className="text-primary-600 hover:underline text-xs flex items-center gap-1">
+                      <a
+                        href={sub.githubRepoUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(event) => event.stopPropagation()}
+                        className="text-primary-600 hover:underline text-xs flex items-center gap-1"
+                      >
                         <Github className="h-3 w-3" />{sub.githubRepo}
                       </a>
                     ) : <span className="text-gray-400 text-xs">—</span>}
@@ -450,16 +425,14 @@ export default function TeacherPage() {
                   <td className="px-5 py-4"><span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${sub.status === "已评分" ? "bg-green-50 text-green-700" : sub.status === "待评审" ? "bg-purple-50 text-purple-700" : sub.status === "检查失败" ? "bg-red-50 text-red-700" : "bg-blue-50 text-blue-700"}`}>{sub.status}</span></td>
                   <td className="px-5 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => { 
-                        setReviewTarget(sub); 
-                        setReviewResult(null);
-                        setReviewAiEval(null);
-                        fetchSubmissionById(sub.id).then(r => {
-                          if (r.ok && r.evaluation) setReviewAiEval(r.evaluation);
-                        });
-                      }}
-                        className="rounded bg-primary-100 px-2 py-1 text-xs font-medium text-primary-700 hover:bg-primary-200">批改</button>
-                      <Link href={`/submissions/${sub.id}`} className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">详情<ChevronRight className="h-3 w-3" /></Link>
+                      <Link
+                        href={`/teacher/reviews/${sub.id}`}
+                        onClick={(event) => event.stopPropagation()}
+                        className="inline-flex items-center gap-1 rounded bg-primary-100 px-2.5 py-1.5 text-xs font-medium text-primary-700 hover:bg-primary-200"
+                      >
+                        {sub.status === "已评分" ? "查看结果" : "批改"}
+                        <ChevronRight className="h-3 w-3" />
+                      </Link>
                     </div>
                   </td>
                 </tr>
@@ -471,80 +444,6 @@ export default function TeacherPage() {
         {!subsLoading && filteredSubs.length === 0 && <div className="py-8 text-center text-sm text-gray-400">暂无提交记录</div>}
       </div>
 
-      {/* C05: Review modal */}
-      {reviewTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg">
-            <h3 className="text-base font-semibold text-gray-900">批改: {reviewTarget.studentName} — {reviewTarget.challengeTitle}</h3>
-
-            {/* GitHub link */}
-            {reviewTarget.githubRepoUrl && (
-              <div className="mt-2 flex items-center gap-1.5 text-sm">
-                <Github className="h-4 w-4 text-gray-400" />
-                <a href={reviewTarget.githubRepoUrl} target="_blank" rel="noopener noreferrer"
-                  className="text-primary-600 hover:underline truncate">{reviewTarget.githubRepo}</a>
-              </div>
-            )}
-
-            {/* AI score */}
-            {reviewTarget.aiScore > 0 && (
-              <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-purple-50 px-3 py-1 text-xs font-medium text-purple-700">
-                AI 初评: {reviewTarget.aiScore}分
-              </div>
-            )}
-
-            {/* AI evaluation details for teacher reference */}
-            {reviewAiEval && (
-              <div className="mt-3 rounded-lg border border-purple-100 bg-purple-50/50 p-3">
-                <p className="text-xs font-medium text-purple-700 mb-2">AI 评审参考</p>
-                {reviewAiEval.feedback && <p className="text-xs text-purple-800 mb-2">{reviewAiEval.feedback}</p>}
-                <div className="grid grid-cols-3 gap-2 text-xs">
-                  {reviewAiEval.strengths && (
-                    <div className="rounded bg-green-100/50 p-2">
-                      <span className="font-medium text-green-700">优点</span>
-                      <p className="text-green-800 mt-0.5">{reviewAiEval.strengths}</p>
-                    </div>
-                  )}
-                  {reviewAiEval.weaknesses && (
-                    <div className="rounded bg-amber-100/50 p-2">
-                      <span className="font-medium text-amber-700">不足</span>
-                      <p className="text-amber-800 mt-0.5">{reviewAiEval.weaknesses}</p>
-                    </div>
-                  )}
-                  {reviewAiEval.suggestions && (
-                    <div className="rounded bg-blue-100/50 p-2">
-                      <span className="font-medium text-blue-700">建议</span>
-                      <p className="text-blue-800 mt-0.5">{reviewAiEval.suggestions}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            <div className="mt-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-900">分数 (0-100)</label>
-                <input type="number" min={0} max={100} value={reviewScore} onChange={(e) => setReviewScore(Number(e.target.value))}
-                  className="mt-1 w-full rounded-lg border border-gray-200 py-2.5 px-4 text-sm" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-900">评语</label>
-                <textarea value={reviewFeedback} onChange={(e) => setReviewFeedback(e.target.value)} rows={3}
-                  placeholder="对学生作品的评价..." className="mt-1 w-full rounded-lg border border-gray-200 py-2.5 px-4 text-sm" />
-              </div>
-              {reviewResult && <div className={`rounded-lg p-3 text-sm ${reviewResult.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>{reviewResult.message}</div>}
-              <div className="flex gap-3">
-                <button onClick={() => handleReview("accept")} disabled={reviewLoading}
-                  className="flex-1 rounded-lg bg-green-600 py-2.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50">确认通过 ✓</button>
-                <button onClick={() => handleReview("return")} disabled={reviewLoading}
-                  className="flex-1 rounded-lg bg-red-600 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50">退回修改 ✗</button>
-              </div>
-              <button onClick={() => { setReviewTarget(null); setReviewResult(null); }}
-                className="w-full rounded-lg border border-gray-200 py-2.5 text-sm text-gray-600 hover:bg-gray-50">取消</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   Github,
   CheckCircle2,
@@ -26,8 +26,6 @@ interface CheckItem {
 
 export default function SubmitPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const requestedChallengeId = searchParams.get("challengeId") || "";
   const [step, setStep] = useState<Step>("select");
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [selectedChallenge, setSelectedChallenge] = useState("");
@@ -41,6 +39,7 @@ export default function SubmitPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    const requestedChallengeId = new URLSearchParams(window.location.search).get("challengeId") || "";
     Promise.all([fetchChallenges(), fetchCurrentUser()]).then(([challengeResult, user]) => {
       setChallenges(challengeResult.items);
       if (user.ok && user.person) {
@@ -57,7 +56,7 @@ export default function SubmitPage() {
       }
       setAuthChecking(false);
     });
-  }, [requestedChallengeId, router]);
+  }, [router]);
   const [githubRepo, setGithubRepo] = useState("");
   const [githubBranch, setGithubBranch] = useState("main");
   const [checkResults, setCheckResults] = useState<CheckItem[]>([
