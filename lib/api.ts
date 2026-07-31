@@ -75,6 +75,51 @@ export async function fetchChallenges(): Promise<{ items: Challenge[]; live: boo
   }
 }
 
+export async function fetchChallengeById(
+  id: string,
+): Promise<{ ok: boolean; challenge?: Challenge; error?: string; status?: number }> {
+  try {
+    const res = await fetch(`/api/challenges/${encodeURIComponent(id)}`);
+    const data = await res.json();
+    if (!res.ok || !data.ok || !data.challenge) {
+      return {
+        ok: false,
+        error: data.error || "加载 Challenge 失败",
+        status: res.status,
+      };
+    }
+
+    const c = data.challenge as BackendChallenge;
+    return {
+      ok: true,
+      status: res.status,
+      challenge: {
+        id: c.challenge_id,
+        number: c.challenge_id,
+        title: c.title,
+        description: c.brief || c.objective || "",
+        difficulty: "进阶",
+        status: c.status === "closed" ? "已完成" : "进行中",
+        team: "",
+        deliverables: c.deliverables,
+        rubric: c.rubric,
+        deadline: c.deadline,
+        skills: c.skills,
+        github_repo: c.github_repo,
+        objective: c.objective,
+        brief: c.brief,
+        learning_objectives: c.learning_objectives,
+        required_deliverables: c.required_deliverables,
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "网络错误",
+    };
+  }
+}
+
 export async function fetchPortfolio(): Promise<{ items: PortfolioItem[]; live: boolean }> {
   try {
     const res = await fetch("/api/portfolio");
