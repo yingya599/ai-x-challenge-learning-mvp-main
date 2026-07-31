@@ -8,14 +8,17 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  ClipboardCheck,
+  ExternalLink,
   FileText,
   Github,
   ListChecks,
   RefreshCw,
+  Send,
   Tag,
   Target,
 } from "lucide-react";
-import { fetchChallengeById } from "@/lib/api";
+import { fetchChallengeById, fetchCurrentUser } from "@/lib/api";
 import type { Challenge } from "@/lib/data";
 
 function splitList(value?: string) {
@@ -31,13 +34,18 @@ export default function ChallengeDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notFound, setNotFound] = useState(false);
+  const [role, setRole] = useState<string | null>(null);
 
   const loadChallenge = useCallback(async () => {
     setLoading(true);
     setError("");
     setNotFound(false);
 
-    const result = await fetchChallengeById(id);
+    const [result, user] = await Promise.all([
+      fetchChallengeById(id),
+      fetchCurrentUser(),
+    ]);
+    setRole(user.ok ? user.role || null : null);
     if (result.ok && result.challenge) {
       setChallenge(result.challenge);
     } else {
@@ -92,6 +100,8 @@ export default function ChallengeDetailPage() {
 
   const deliverables = splitList(challenge.deliverables);
   const skills = splitList(challenge.skills);
+  const isStudent = role === "student";
+  const isReviewer = role === "teacher" || role === "admin" || role === "ta";
 
   return (
     <div className="space-y-6">
@@ -117,17 +127,39 @@ export default function ChallengeDetailPage() {
               {challenge.description || "暂未填写 Challenge 简介"}
             </p>
           </div>
-          {challenge.github_repo && (
-            <a
-              href={challenge.github_repo}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-            >
-              <Github className="h-4 w-4" />
-              查看 GitHub 资料
-            </a>
-          )}
+          <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
+            {challenge.github_repo && (
+              <a
+                href={challenge.github_repo}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Github className="h-4 w-4" />
+                查看 GitHub 资料
+              </a>
+            )}
+            {isStudent && (
+              <Link
+                href={`/submit?challengeId=${encodeURIComponent(challenge.id)}`}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-700"
+              >
+                <Send className="h-4 w-4" />
+                提交 Challenge
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Link>
+            )}
+            {isReviewer && (
+              <Link
+                href={`/teacher?challengeId=${encodeURIComponent(challenge.id)}#submissions`}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-700"
+              >
+                <ClipboardCheck className="h-4 w-4" />
+                查看提交并评审
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 

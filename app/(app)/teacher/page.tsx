@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Users, CheckCircle2, Clock, Search, ChevronRight,
   Star, Download, Github, Eye,
@@ -24,9 +25,12 @@ interface SubmissionRow {
 }
 
 export default function TeacherPage() {
+  const searchParams = useSearchParams();
+  const challengeIdFromQuery = searchParams.get("challengeId");
+  const notice = searchParams.get("notice");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
-  const [selectedChallenge, setSelectedChallenge] = useState<string | null>(null);
+  const [selectedChallenge, setSelectedChallenge] = useState<string | null>(challengeIdFromQuery);
   const [challenges, setChallenges] = useState<(Challenge & { github_repo?: string })[]>([]);
 
   // Publish form
@@ -99,6 +103,10 @@ export default function TeacherPage() {
       setChallenges(r.items || []);
     });
   }, []);
+
+  useEffect(() => {
+    setSelectedChallenge(challengeIdFromQuery);
+  }, [challengeIdFromQuery]);
 
   const submissions: SubmissionRow[] = (realSubmissions || []).map((s) => ({
     id: s.submission_id,
@@ -225,6 +233,11 @@ export default function TeacherPage() {
 
   return (
     <div className="space-y-6">
+      {notice === "submit-not-allowed" && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          教师账号不能提交 Challenge，请在教师控制台查看并评审学生提交。
+        </div>
+      )}
       {/* 标题 */}
       <div className="flex items-center justify-between">
         <div>
@@ -406,7 +419,7 @@ export default function TeacherPage() {
       </div>
 
       {/* 提交表格 */}
-      <div className="rounded-xl border border-gray-200 bg-white">
+      <div id="submissions" className="scroll-mt-6 rounded-xl border border-gray-200 bg-white">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
