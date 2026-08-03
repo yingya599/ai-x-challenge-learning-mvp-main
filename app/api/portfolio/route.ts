@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPortfolioItems } from "@/lib/server/feishu";
+import { getEvaluations, getPortfolioItems, type EvaluationRecord } from "@/lib/server/feishu";
 import { getPrincipal } from "@/lib/server/principal";
 import { isStaff } from "@/lib/server/rbac";
 
@@ -10,7 +10,10 @@ export async function GET() {
   }
 
   try {
-    const items = await getPortfolioItems();
+    const [items, evaluations] = await Promise.all([
+      getPortfolioItems(),
+      getEvaluations(),
+    ]);
 
     // Public items: visible to all logged-in users
     // Non-public items: only visible to staff
@@ -19,7 +22,31 @@ export async function GET() {
       (item) => item.is_public === true || isStaff(principal),
     );
 
-    return NextResponse.json({ ok: true, items: visible });
+    const latestEvaluation = (
+      submissionId: string | undefined,
+      evaluatorType: "ai" | "teacher",
+    ): EvaluationRecord | undefined => {
+      if (!submissionId) return undefined;
+      return evaluations
+        .filter(
+          (evaluation) =>
+            evaluation.submission_id === submissionId &&
+            evaluation.evaluator_type === evaluatorType,
+        )
+        .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
+    };
+
+    const enriched = visible.map((item) => {
+      const aiEvaluation = latestEvaluation(item.submission_id, "ai");
+      const teacherEvaluation = latestEvaluation(item.submission_id, "teacher");
+      return {
+        ...item,
+        ai_score: aiEvaluation?.score_total,
+        teacher_score: teacherEvaluation?.score_total,
+      };
+    });
+
+    return NextResponse.json({ ok: true, items: enriched });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Failed to load portfolio" },

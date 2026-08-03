@@ -543,6 +543,10 @@ export type EvaluationRecord = {
   evaluator_id: string;
   score_total: number;
   feedback: string;
+  strengths?: string;
+  weaknesses?: string;
+  suggestions?: string;
+  scores_json?: string;
   created_at: string;
 };
 
@@ -558,6 +562,10 @@ function normalizeEvaluation(record: { record_id: string; fields: Record<string,
     evaluator_id: asString(field(f, "evaluator_id")),
     score_total: Number(field(f, "score_total")) || 0,
     feedback: asString(field(f, "feedback")),
+    strengths: asString(field(f, "strengths")),
+    weaknesses: asString(field(f, "weaknesses")),
+    suggestions: asString(field(f, "suggestions")),
+    scores_json: asString(field(f, "scores_json")),
     created_at: asString(field(f, "created_at")),
   };
 }

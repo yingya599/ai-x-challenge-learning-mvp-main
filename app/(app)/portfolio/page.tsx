@@ -23,12 +23,14 @@ export default function PortfolioPage() {
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [live, setLive] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const [showPublicOnly, setShowPublicOnly] = useState(false);
 
   useEffect(() => {
     fetchPortfolio().then((r) => {
       setPortfolioItems(r.items);
       setLive(r.live);
+      setLoadError(r.error || "");
       setLoading(false);
     });
   }, []);
@@ -44,8 +46,12 @@ export default function PortfolioPage() {
   });
 
   const publicCount = portfolioItems.filter((p) => p.isPublic).length;
-  const avgScore = portfolioItems.length > 0
-    ? Math.round(portfolioItems.reduce((a, b) => a + b.aiScore, 0) / portfolioItems.length)
+  const aiScoredItems = portfolioItems.filter(
+    (item): item is PortfolioItem & { aiScore: number } =>
+      typeof item.aiScore === "number",
+  );
+  const avgScore = aiScoredItems.length > 0
+    ? Math.round(aiScoredItems.reduce((a, b) => a + b.aiScore, 0) / aiScoredItems.length)
     : 0;
 
   // Loading state
@@ -65,7 +71,7 @@ export default function PortfolioPage() {
         <PackageOpen className="h-12 w-12 text-gray-300" />
         <p className="mt-4 text-sm font-medium text-gray-500">暂无作品</p>
         <p className="mt-1 text-xs text-gray-400">
-          {live ? "提交项目后，作品将在这里展示" : "无法连接服务器，请稍后重试"}
+          {live ? "提交项目后，作品将在这里展示" : loadError || "无法连接服务器，请稍后重试"}
         </p>
         <Link
           href="/submit"
@@ -165,8 +171,18 @@ export default function PortfolioPage() {
             </div>
             <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-3">
               <div className="flex items-center gap-3 text-xs text-gray-500">
-                <span className="flex items-center gap-1"><Star className="h-3 w-3 text-amber-400" /> AI {item.aiScore}</span>
-                {item.teacherScore && <span className="flex items-center gap-1"><Award className="h-3 w-3 text-primary-500" /> 教师 {item.teacherScore}</span>}
+                {typeof item.aiScore === "number" ? (
+                  <span className="flex items-center gap-1">
+                    <Star className="h-3 w-3 text-amber-400" /> AI {item.aiScore}
+                  </span>
+                ) : (
+                  <span>AI 未评分</span>
+                )}
+                {typeof item.teacherScore === "number" && (
+                  <span className="flex items-center gap-1">
+                    <Award className="h-3 w-3 text-primary-500" /> 教师 {item.teacherScore}
+                  </span>
+                )}
               </div>
               <a href={`https://github.com/${item.githubRepo}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600">
                 <Github className="h-3 w-3" /> 仓库

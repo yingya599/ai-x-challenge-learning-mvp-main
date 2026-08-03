@@ -28,7 +28,7 @@ const navItems: NavItem[] = [
   { href: "/admin", label: "Admin 管理控制台", icon: ShieldCheck, roles: ["admin"] },
   { href: "/dashboard", label: "仪表盘", icon: LayoutDashboard, roles: ["student", "teacher", "admin", "ta"] },
   { href: "/lms", label: "LMS 学习管理", icon: GraduationCap, roles: ["student", "teacher", "admin"] },
-  { href: "/challenges/C01", label: "Challenge 详情", icon: BookOpen, roles: ["student", "teacher", "admin"] },
+  { href: "/challenges", label: "Challenge 详情", icon: BookOpen, roles: ["student", "teacher", "admin", "ta"] },
   { href: "/submit", label: "提交 Challenge", icon: Send, roles: ["student"] },
   { href: "/submissions", label: "提交记录", icon: BookOpen, roles: ["student", "teacher", "admin"] },
   { href: "/portfolio", label: "作品集", icon: Award, roles: ["student", "teacher", "admin"] },
@@ -62,7 +62,9 @@ export default function Sidebar() {
       </div>
       <nav className="flex-1 space-y-1 px-3 py-4">
         {visibleItems.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive =
+            pathname === item.href ||
+            (item.href === "/challenges" && pathname.startsWith("/challenges/"));
           return (
             <Link
               key={item.href}

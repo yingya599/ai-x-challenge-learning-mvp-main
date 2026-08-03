@@ -136,7 +136,7 @@ export interface PortfolioItem {
   techStack: string[];
   demoUrl?: string;
   githubRepo: string;
-  aiScore: number;
+  aiScore?: number;
   teacherScore?: number;
   isPublic: boolean;
   submittedAt: string;

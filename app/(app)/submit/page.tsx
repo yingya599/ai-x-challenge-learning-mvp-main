@@ -28,6 +28,8 @@ export default function SubmitPage() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("select");
   const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [selectedChallenge, setSelectedChallenge] = useState("");
+  const [authChecking, setAuthChecking] = useState(true);
   const [studentId, setStudentId] = useState("");
   const [projectTitle, setProjectTitle] = useState("");
   const [projectSummary, setProjectSummary] = useState("");
@@ -37,17 +39,24 @@ export default function SubmitPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchChallenges().then((r) => setChallenges(r.items));
-    // T9: Read studentId from session
-    fetchCurrentUser().then((user) => {
+    const requestedChallengeId = new URLSearchParams(window.location.search).get("challengeId") || "";
+    Promise.all([fetchChallenges(), fetchCurrentUser()]).then(([challengeResult, user]) => {
+      setChallenges(challengeResult.items);
       if (user.ok && user.person) {
+        if (user.role !== "student") {
+          router.replace("/teacher?notice=submit-not-allowed");
+          return;
+        }
         setStudentId(user.person);
+        if (requestedChallengeId && challengeResult.items.some((item) => item.id === requestedChallengeId)) {
+          setSelectedChallenge(requestedChallengeId);
+        }
       } else {
-        router.push("/login");
+        router.replace("/login");
       }
+      setAuthChecking(false);
     });
-  }, []);
-  const [selectedChallenge, setSelectedChallenge] = useState("");
+  }, [router]);
   const [githubRepo, setGithubRepo] = useState("");
   const [githubBranch, setGithubBranch] = useState("main");
   const [checkResults, setCheckResults] = useState<CheckItem[]>([
@@ -121,6 +130,15 @@ export default function SubmitPage() {
     setAllPassed(false);
     setError("");
   };
+
+  if (authChecking) {
+    return (
+      <div className="flex items-center justify-center py-20 text-sm text-gray-500">
+        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+        正在确认提交权限...
+      </div>
+    );
+  }
 
   if (submitDone) {
     return (
