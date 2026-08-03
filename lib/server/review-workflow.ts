@@ -12,48 +12,196 @@ import {
 import { enqueue, flush } from "./audit-outbox";
 import { notifyStudent } from "./notify";
 import { updateStudentMemory } from "./ontology-memory";
+import { getRedis } from "./redis";
+import {
+  assertTeacherFinalization,
+  normalizeSubmissionStatus,
+  taskStateFor,
+} from "./submission-state";
+import { makeId } from "./ids";
+import { selectEffectiveTeacherEvaluation } from "./evaluation-policy";
 
 export interface TeacherReviewInput {
   submissionId: string;
-  submissionRecordId: string; // feishu record_id for update
-  studentId: string;
-  challengeId: string;
   action: "accept" | "return";
   score: number;
   feedback: string;
+  // 由服务端 Principal 或可信消息信封提供，客户端不能指定。
+  reviewerId: string;
+  reviewerAgentId?: string;
 }
+
+export type TeacherReviewErrorCode =
+  | "INVALID_INPUT"
+  | "NOT_FOUND"
+  | "CONFLICT"
+  | "SERVICE_UNAVAILABLE"
+  | "INVALID_TRANSITION"
+  | "INTERNAL_ERROR";
 
 export interface TeacherReviewResult {
   ok: boolean;
   evaluationId?: string;
   error?: string;
+  errorCode?: TeacherReviewErrorCode;
   auditTrail?: unknown[];
 }
 
 export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<TeacherReviewResult> {
   const audit = new AuditTrail();
+  const redis = getRedis();
+  const lockKey = `nseap:lock:teacher-final-review:${input.submissionId}`;
+  const lockToken = makeId("review-lock");
+  const auditActor = input.reviewerId || input.reviewerAgentId || WEBAPP_FALLBACK_TEACHER_AGENT;
+  let lockAcquired = false;
+
+  const persistAudit = async () => {
+    enqueue(audit.entries);
+    await flush();
+  };
+
+  const lockUnavailable = async (error?: unknown): Promise<TeacherReviewResult> => {
+    audit.log(auditActor, "teacher_review_lock_unavailable", input.submissionId, {
+      error_trace: error instanceof Error ? error.message : error ? String(error) : undefined,
+    });
+    await persistAudit();
+    return {
+      ok: false,
+      error: "终审保护服务暂不可用，请稍后重试",
+      errorCode: "SERVICE_UNAVAILABLE",
+      auditTrail: audit.entries,
+    };
+  };
 
   try {
     // 0. Validate score (defense-in-depth)
     if (!Number.isFinite(input.score) || input.score < 0 || input.score > 100) {
-      return { ok: false, error: "分数必须在 0-100 之间" };
+      return { ok: false, error: "分数必须在 0-100 之间", errorCode: "INVALID_INPUT" };
     }
+    if (input.action !== "accept" && input.action !== "return") {
+      return {
+        ok: false,
+        error: "action 必须为 accept 或 return",
+        errorCode: "INVALID_INPUT",
+      };
+    }
+    if (!input.submissionId || !input.reviewerId || !input.feedback?.trim()) {
+      return {
+        ok: false,
+        error: "缺少 Submission、终审人或评语",
+        errorCode: "INVALID_INPUT",
+      };
+    }
+
+    // P0-5：教师终审必须失败关闭。没有 Redis 就不能保证并发下只写一次。
+    if (!redis) {
+      return lockUnavailable();
+    }
+
+    try {
+      // getRedis() 首次创建连接时可能仍处于 connecting；PING 会等待 ready，
+      // 同时把真实连接故障统一转换为 503。
+      const pong = await redis.ping();
+      if (pong !== "PONG") throw new Error("Redis ping failed");
+    } catch (error) {
+      return lockUnavailable(error);
+    }
+
+    let acquired: string | null;
+    try {
+      acquired = await redis.set(lockKey, lockToken, "EX", 120, "NX");
+    } catch (error) {
+      return lockUnavailable(error);
+    }
+    if (!acquired) {
+      audit.log(auditActor, "teacher_review_lock_conflict", input.submissionId);
+      await persistAudit();
+      return {
+        ok: false,
+        error: "该 Submission 正在被其他教师终审，请刷新后重试",
+        errorCode: "CONFLICT",
+        auditTrail: audit.entries,
+      };
+    }
+    lockAcquired = true;
+
+    // 锁内重新读取飞书，飞书记录是终审是否完成的最终依据。
+    const submission = await feishu.getSubmissionById(input.submissionId);
+    if (!submission || !submission.recordId) {
+      audit.log(auditActor, "teacher_review_submission_not_found", input.submissionId);
+      await persistAudit();
+      return {
+        ok: false,
+        error: "提交记录不存在",
+        errorCode: "NOT_FOUND",
+        auditTrail: audit.entries,
+      };
+    }
+
+    const existingEvaluations = await feishu.getEvaluationsBySubmission(input.submissionId);
+    const existingTeacherEvaluation =
+      selectEffectiveTeacherEvaluation(existingEvaluations);
+    if (existingTeacherEvaluation) {
+      audit.log(auditActor, "duplicate_teacher_review_rejected", input.submissionId, {
+        after_state: { evaluation_id: existingTeacherEvaluation.evaluation_id },
+      });
+      await persistAudit();
+      return {
+        ok: false,
+        error: "该 Submission 已完成教师终审，不能重复评价",
+        errorCode: "CONFLICT",
+        auditTrail: audit.entries,
+      };
+    }
+
+    const currentStatus = normalizeSubmissionStatus(submission.status, submission.task_state);
+    if (!currentStatus) {
+      audit.log(auditActor, "unknown_submission_state_rejected", input.submissionId, {
+        before_state: { status: submission.status, task_state: submission.task_state },
+      });
+      await persistAudit();
+      return {
+        ok: false,
+        error: `无法识别 Submission 当前状态：${submission.status || submission.task_state || "空"}`,
+        errorCode: "INVALID_TRANSITION",
+        auditTrail: audit.entries,
+      };
+    }
+
+    let newStatus: "accepted" | "needs_teacher_revision";
+    try {
+      newStatus = assertTeacherFinalization(currentStatus, input.action);
+    } catch (error) {
+      audit.log(auditActor, "illegal_teacher_review_transition", input.submissionId, {
+        error_trace: error instanceof Error ? error.message : String(error),
+        before_state: { status: currentStatus },
+      });
+      await persistAudit();
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "当前状态不允许终审",
+        errorCode: "INVALID_TRANSITION",
+        auditTrail: audit.entries,
+      };
+    }
+
+    const envelopeAgentId = input.reviewerAgentId || WEBAPP_FALLBACK_TEACHER_AGENT;
 
     // 1. Construct manual_review_adjustment envelope
     const envelope = buildEnvelope({
       messageType: "manual_review_adjustment",
-      fromAgent: WEBAPP_FALLBACK_TEACHER_AGENT,
+      fromAgent: envelopeAgentId,
       toAgent: SUBMISSION_TASK_AGENT,
       payload: {
         submission_id: input.submissionId,
-        student_id: input.studentId,
+        student_id: submission.student_id,
         action: input.action,
         score: input.score,
         feedback: input.feedback,
       },
       auditId: audit.traceId,
     });
-    audit.log(WEBAPP_FALLBACK_TEACHER_AGENT, "send_manual_review_adjustment", envelope.message_id);
+    audit.log(auditActor, "send_manual_review_adjustment", envelope.message_id);
 
     // 2. Trust check: teacher → submission-task agent
     if (!isTrusted(envelope.from_agent, envelope.to_agent)) {
@@ -61,13 +209,39 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
     }
     audit.log(SUBMISSION_TASK_AGENT, "verify_relationship_review", envelope.from_agent);
 
+    // 飞书读取可能较慢；真正写评价前续期并再次确认锁仍由本请求持有。
+    // 若锁已经丢失则失败关闭，绝不继续写入第二条终审评价。
+    try {
+      const renewed = await redis.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end",
+        1,
+        lockKey,
+        lockToken,
+        120,
+      );
+      if (Number(renewed) !== 1) {
+        lockAcquired = false;
+        audit.log(auditActor, "teacher_review_lock_lost", input.submissionId);
+        await persistAudit();
+        return {
+          ok: false,
+          error: "终审锁已失效，请刷新后重试",
+          errorCode: "CONFLICT",
+          auditTrail: audit.entries,
+        };
+      }
+    } catch (error) {
+      lockAcquired = false;
+      return lockUnavailable(error);
+    }
+
     // 3. Write teacher evaluation to Evaluations table
     const evaluation = await feishu.createEvaluation({
       submission_id: input.submissionId,
-      student_id: input.studentId,
-      challenge_id: input.challengeId,
+      student_id: submission.student_id,
+      challenge_id: submission.challenge_id,
       evaluator_type: "teacher",
-      evaluator_id: WEBAPP_FALLBACK_TEACHER_AGENT,
+      evaluator_id: input.reviewerId,
       score_total: input.score,
       feedback: input.feedback,
       created_at: new Date().toISOString(),
@@ -77,13 +251,14 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
     });
 
     // 4. Update Submission record: status + task_state (dual column, §4.3)
-    const newStatus = input.action === "accept" ? "accepted" : "needs_teacher_revision";
-    const newTaskState = input.action === "accept" ? "COMPLETED" : "RETURNED_FOR_REVISION";
+    const newTaskState = taskStateFor(newStatus);
 
     try {
-      await feishu.updateSubmission(input.submissionRecordId, {
+      await feishu.updateSubmission(submission.recordId, {
         status: newStatus,
         task_state: newTaskState,
+        review_status: newStatus,
+        updated_at: new Date().toISOString(),
       });
       audit.log(SUBMISSION_TASK_AGENT, "update_submission_status", input.submissionId, {
         before_state: {},
@@ -98,7 +273,7 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
       if (isFieldNotFound) {
         // ADR-003 fallback: task_state column may not exist, only update status
         audit.log(SUBMISSION_TASK_AGENT, "task_state_field_missing", input.submissionId);
-        await feishu.updateSubmission(input.submissionRecordId, { status: newStatus });
+        await feishu.updateSubmission(submission.recordId, { status: newStatus });
         audit.log(SUBMISSION_TASK_AGENT, "update_submission_status_fallback", input.submissionId, {
           after_state: { status: newStatus, task_state: "⚠️ column missing" },
         });
@@ -109,26 +284,20 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
 
     // 5. Notify student (T8)
     const actionText = input.action === "accept" ? "通过 ✅" : "需要修改 ⚠️";
-    const notifyResult = await notifyStudent(input.studentId,
+    const notifyResult = await notifyStudent(submission.student_id,
       `📢 你的提交教师终评结果：\n${actionText}\n分数：${input.score}/100\n评语：${input.feedback}`
     );
     if (!notifyResult.ok) {
-      const entry = audit.log(SUBMISSION_TASK_AGENT, "notify_failed", input.studentId, { error_trace: notifyResult.error });
-      enqueue([entry]);
-      await flush();
+      audit.log(SUBMISSION_TASK_AGENT, "notify_failed", submission.student_id, { error_trace: notifyResult.error });
     }
 
-    enqueue(audit.entries);
-    await flush();
+    await persistAudit();
 
     // AGENT_CN.md §3.3: update ontology memory after teacher review.
-    // TODO: last_feedback.from should be the actual reviewer agent_id, not
-    // hardcoded WEBAPP_FALLBACK_TEACHER_AGENT. Pass callerAgentId through
-    // TeacherReviewInput when WorkBuddy/Hermes teacher agents are active.
-    void updateStudentMemory(input.studentId, {
+    void updateStudentMemory(submission.student_id, {
       learning_state: "reviewed",
       last_feedback: {
-        from: WEBAPP_FALLBACK_TEACHER_AGENT,
+        from: input.reviewerAgentId || input.reviewerId,
         summary_pointer: input.submissionId,
         ts: new Date().toISOString(),
       },
@@ -143,12 +312,22 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
     audit.log(SUBMISSION_TASK_AGENT, "teacher_review_failed", input.submissionId, {
       error_trace: error instanceof Error ? error.message : String(error),
     });
-    enqueue(audit.entries);
-    await flush();
+    await persistAudit();
     return {
       ok: false,
       error: error instanceof Error ? error.message : "评审失败",
+      errorCode: "INTERNAL_ERROR",
       auditTrail: audit.entries,
     };
+  } finally {
+    if (lockAcquired && redis) {
+      // 只释放自己持有的锁，避免误删超时后由其他请求取得的新锁。
+      await redis.eval(
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+        1,
+        lockKey,
+        lockToken,
+      ).catch(() => {});
+    }
   }
 }

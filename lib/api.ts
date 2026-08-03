@@ -287,7 +287,10 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
       challengeCount: challenges.ok ? (challenges.challenges || []).length : 0,
       submissionCount: subs.length,
       pendingReview: subs.filter((s: SubmissionListItem) =>
-        s.task_state === "pending_teacher_review" || s.status === "checked"
+        s.status === "pending_teacher_review" ||
+        s.status === "checked" ||
+        s.task_state?.toUpperCase() === "PENDING_TEACHER_REVIEW" ||
+        s.task_state?.toUpperCase() === "CHECKED"
       ).length,
       completedCount: subs.filter((s: SubmissionListItem) =>
         s.task_state === "COMPLETED" || s.status === "accepted"

@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { getSubmissionById, getEvaluationsBySubmission } from "@/lib/server/feishu";
 import { getPrincipal, getStudentId } from "@/lib/server/principal";
+import { selectEffectiveTeacherEvaluation } from "@/lib/server/evaluation-policy";
 
 export async function GET(
   _request: Request,
@@ -46,7 +47,7 @@ export async function GET(
     // Fetch evaluations for display (AI + teacher reviews)
     const evaluations = await getEvaluationsBySubmission(id);
     const aiEval = evaluations.find(e => e.evaluator_type === "ai");
-    const teacherEval = evaluations.find(e => e.evaluator_type === "teacher");
+    const teacherEval = selectEffectiveTeacherEvaluation(evaluations);
 
     return NextResponse.json({ 
       ok: true, 

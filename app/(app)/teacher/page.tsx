@@ -115,7 +115,8 @@ export default function TeacherPage() {
       const st = s.status || "";
       if (st === "accepted" || st === "reviewed") return "已评分";
       if (st === "pending_review" || st === "under_review" || st === "pending_teacher_review") return "待评审";
-      if (st === "needs_revision" || st === "needs_teacher_revision") return "检查失败";
+      if (st === "needs_teacher_revision") return "教师已退回";
+      if (st === "needs_revision") return "检查失败";
       if (st === "checking" || st === "validating") return "检查中";
       return "已提交";
     })(),
