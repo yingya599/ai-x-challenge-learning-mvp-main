@@ -34,7 +34,28 @@ export function isStaff(principal: ServicePrincipal | null): boolean {
   return STAFF_ROLES.has(principal.role);
 }
 
-const STAFF_ROLES = new Set(["teacher", "admin", "ta"]);
+const STAFF_ROLES = new Set(["teacher", "mentor", "leader", "admin", "ta"]);
+
+/** Legacy teacher is treated as mentor until the Feishu role migration is complete. */
+export function isMentor(principal: ServicePrincipal | null): boolean {
+  return !!principal && MENTOR_ROLES.has(principal.role);
+}
+
+const MENTOR_ROLES = new Set(["teacher", "mentor"]);
+
+export function isLeader(principal: ServicePrincipal | null): boolean {
+  return !!principal && LEADER_ROLES.has(principal.role);
+}
+
+const LEADER_ROLES = new Set(["leader"]);
+
+export function canAccessManagement(principal: ServicePrincipal | null): boolean {
+  return !!principal && MANAGEMENT_ROLES.has(principal.role);
+}
+
+// System administrators use /admin for account, configuration and data maintenance.
+// They are deliberately not treated as business leaders.
+const MANAGEMENT_ROLES = new Set(["teacher", "mentor", "leader", "ta"]);
 
 /** True if principal is an admin or system-level account. */
 export function isAdmin(principal: ServicePrincipal | null): boolean {
@@ -61,11 +82,11 @@ type Role = string;
  * ⚠️  No route should re-implement role string comparisons — call can() instead.
  */
 const PERMISSIONS: Record<Action, ReadonlySet<Role>> = {
-  view_all_submissions: new Set(["teacher", "admin", "ta"]),
-  view_roster: new Set(["teacher", "admin", "ta"]),
-  publish_challenge: new Set(["teacher", "admin"]),
-  finalize_review: new Set(["teacher", "admin"]),
-  view_agents: new Set(["teacher", "admin", "ta"]),
+  view_all_submissions: new Set(["teacher", "mentor", "leader", "admin", "ta"]),
+  view_roster: new Set(["teacher", "mentor", "leader", "admin", "ta"]),
+  publish_challenge: new Set(["leader"]),
+  finalize_review: new Set(["teacher", "mentor", "leader"]),
+  view_agents: new Set(["teacher", "mentor", "leader", "admin", "ta"]),
   manage_agents: new Set(["admin"]),
 };
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getEvaluations, getPortfolioItems, type EvaluationRecord } from "@/lib/server/feishu";
 import { getPrincipal } from "@/lib/server/principal";
 import { isStaff } from "@/lib/server/rbac";
+import { selectEffectiveTeacherEvaluation } from "@/lib/server/evaluation-policy";
 
 export async function GET() {
   const principal = await getPrincipal();
@@ -22,23 +23,25 @@ export async function GET() {
       (item) => item.is_public === true || isStaff(principal),
     );
 
-    const latestEvaluation = (
+    const evaluationsFor = (
       submissionId: string | undefined,
       evaluatorType: "ai" | "teacher",
-    ): EvaluationRecord | undefined => {
-      if (!submissionId) return undefined;
+    ): EvaluationRecord[] => {
+      if (!submissionId) return [];
       return evaluations
         .filter(
           (evaluation) =>
             evaluation.submission_id === submissionId &&
             evaluation.evaluator_type === evaluatorType,
-        )
-        .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
+        );
     };
 
     const enriched = visible.map((item) => {
-      const aiEvaluation = latestEvaluation(item.submission_id, "ai");
-      const teacherEvaluation = latestEvaluation(item.submission_id, "teacher");
+      const aiEvaluation = evaluationsFor(item.submission_id, "ai")
+        .sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""))[0];
+      const teacherEvaluation = selectEffectiveTeacherEvaluation(
+        evaluationsFor(item.submission_id, "teacher"),
+      );
       return {
         ...item,
         ai_score: aiEvaluation?.score_total,

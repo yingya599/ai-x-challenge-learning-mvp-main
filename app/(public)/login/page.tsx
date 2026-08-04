@@ -19,14 +19,26 @@ export default function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch(mode === "admin" ? "/api/auth/admin/login" : "/api/auth/login", {
+      let response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(mode === "admin"
-          ? { admin_id: userId.trim(), name: name.trim() }
-          : { studentId: userId.trim(), name: name.trim() }),
+        body: JSON.stringify({
+          studentId: userId.trim(),
+          name: name.trim(),
+          portal: mode === "admin" ? "leadership" : "member",
+        }),
       });
-      const data = await response.json();
+      let data = await response.json();
+
+      // 领导沿用统一身份表登录；系统管理员仍沿用原来的管理员认证接口。
+      if (mode === "admin" && data.code === "ADMIN_OAUTH_REQUIRED") {
+        response = await fetch("/api/auth/admin/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ admin_id: userId.trim(), name: name.trim() }),
+        });
+        data = await response.json();
+      }
       if (!response.ok) throw new Error(data.error || "登录失败");
       router.push(data.redirect || (mode === "admin" ? "/admin" : "/dashboard"));
       router.refresh();
@@ -52,23 +64,23 @@ export default function LoginPage() {
           <div className="mb-6 grid grid-cols-2 rounded-lg bg-gray-100 p-1">
             <button type="button" onClick={() => { setMode("member"); setError(""); }}
               className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${mode === "member" ? "bg-white text-primary-700 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
-              <Users className="h-4 w-4" /> 学生 / 教师
+              <Users className="h-4 w-4" /> 实习生 / 带教
             </button>
             <button type="button" onClick={() => { setMode("admin"); setError(""); }}
               className={`flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${mode === "admin" ? "bg-white text-primary-700 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
-              <ShieldCheck className="h-4 w-4" /> 管理员
+              <ShieldCheck className="h-4 w-4" /> 领导 / 管理员
             </button>
           </div>
 
           <form onSubmit={submit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-900">{mode === "admin" ? "管理员 ID" : "用户 ID"}</label>
+              <label className="block text-sm font-medium text-gray-900">{mode === "admin" ? "领导 / 管理员 ID" : "用户 ID"}</label>
               <div className="relative mt-1">
                 {mode === "admin"
                   ? <ShieldCheck className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
                   : <GraduationCap className="absolute left-3 top-3 h-4 w-4 text-gray-400" />}
                 <input value={userId} onChange={(event) => setUserId(event.target.value)}
-                  placeholder={mode === "admin" ? "输入 admin_id" : "学生 ID 或教师 ID"}
+                  placeholder={mode === "admin" ? "输入领导 ID 或 admin_id" : "实习生 ID 或带教 ID"}
                   className="w-full rounded-lg border border-gray-200 py-2.5 pl-10 pr-4 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500" required />
               </div>
             </div>
@@ -82,7 +94,7 @@ export default function LoginPage() {
             {error && <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</div>}
 
             <button type="submit" disabled={loading} className="btn-primary flex w-full items-center justify-center gap-2 disabled:opacity-60">
-              {loading ? "正在验证…" : mode === "admin" ? "登录管理系统" : "登录学习平台"}
+              {loading ? "正在验证…" : mode === "admin" ? "登录领导 / 管理端" : "登录任务平台"}
               <ArrowRight className="h-4 w-4" />
             </button>
           </form>

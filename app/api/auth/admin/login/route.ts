@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     });
     const response = NextResponse.json({ ok: true, redirect: "/admin" });
     response.cookies.set(SESSION_COOKIE, token, {
-      httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "strict", path: "/", maxAge: 86400,
+      httpOnly: true, secure: process.env.COOKIE_SECURE === "true", sameSite: "strict", path: "/", maxAge: 86400,
     });
     return response;
   } catch {
