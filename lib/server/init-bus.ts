@@ -65,19 +65,20 @@ async function handleManualReviewAdjustment(envelope: MessageEnvelope): Promise<
 
   try {
     const { teacherFinalizeReview } = await import("./review-workflow");
-    const input = envelope.payload as unknown as {
-      submissionId: string;
-      submissionRecordId: string;
-      studentId: string;
-      challengeId?: string;
-      action: "accept" | "return";
-      score: number;
-      feedback: string;
-    };
+    const payload = envelope.payload as Record<string, unknown>;
+    // Envelope v2 使用 snake_case；保留 camelCase 兼容旧调用方。
+    const submissionId = String(payload.submission_id || payload.submissionId || "");
+    const action = String(payload.action || "") as "accept" | "return";
+    const score = Number(payload.score);
+    const feedback = String(payload.feedback || "");
 
     const result = await teacherFinalizeReview({
-      ...input,
-      challengeId: input.challengeId || "",
+      submissionId,
+      action,
+      score,
+      feedback,
+      reviewerId: envelope.from_agent,
+      reviewerAgentId: envelope.from_agent,
     });
 
     await updateTaskStatus(taskId, result.ok ? "completed" : "failed", {

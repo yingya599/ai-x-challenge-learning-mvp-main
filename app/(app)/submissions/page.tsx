@@ -70,7 +70,7 @@ export default function SubmissionsPage() {
       <div>
         <h1 className="text-xl font-semibold text-gray-900">提交记录</h1>
         <p className="mt-1 text-sm text-gray-500">
-          共 {subs.length} 条提交记录，点击查看 AI 评分详情
+          共 {subs.length} 条任务提交，点击即可查看提交时保存的 AI 初评和带教反馈
         </p>
       </div>
 
@@ -95,10 +95,10 @@ export default function SubmissionsPage() {
           </p>
           {subs.length === 0 && (
             <Link
-              href="/submit"
+              href="/tasks"
               className="mt-4 inline-flex items-center gap-1 text-sm text-primary-600 hover:underline"
             >
-              去提交第一个 Challenge →
+              查看我的任务 →
             </Link>
           )}
         </div>

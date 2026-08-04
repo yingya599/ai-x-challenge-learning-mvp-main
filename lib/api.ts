@@ -35,6 +35,8 @@ type BackendPortfolioItem = {
   demo_url?: string;
   is_public?: boolean;
   created_at?: string;
+  ai_score?: number;
+  teacher_score?: number;
 };
 
 export async function fetchChallenges(): Promise<{ items: Challenge[]; live: boolean }> {
@@ -75,12 +77,59 @@ export async function fetchChallenges(): Promise<{ items: Challenge[]; live: boo
   }
 }
 
-export async function fetchPortfolio(): Promise<{ items: PortfolioItem[]; live: boolean }> {
+export async function fetchChallengeById(
+  id: string,
+): Promise<{ ok: boolean; challenge?: Challenge; error?: string; status?: number }> {
+  try {
+    const res = await fetch(`/api/challenges/${encodeURIComponent(id)}`);
+    const data = await res.json();
+    if (!res.ok || !data.ok || !data.challenge) {
+      return {
+        ok: false,
+        error: data.error || "加载 Challenge 失败",
+        status: res.status,
+      };
+    }
+
+    const c = data.challenge as BackendChallenge;
+    return {
+      ok: true,
+      status: res.status,
+      challenge: {
+        id: c.challenge_id,
+        number: c.challenge_id,
+        title: c.title,
+        description: c.brief || c.objective || "",
+        difficulty: "进阶",
+        status: c.status === "closed" ? "已完成" : "进行中",
+        team: "",
+        deliverables: c.deliverables,
+        rubric: c.rubric,
+        deadline: c.deadline,
+        skills: c.skills,
+        github_repo: c.github_repo,
+        objective: c.objective,
+        brief: c.brief,
+        learning_objectives: c.learning_objectives,
+        required_deliverables: c.required_deliverables,
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "网络错误",
+    };
+  }
+}
+
+export async function fetchPortfolio(): Promise<{ items: PortfolioItem[]; live: boolean; error?: string }> {
   try {
     const res = await fetch("/api/portfolio");
     const data = await res.json();
     const list = data.portfolioItems ?? data.items;
-    if (!data.ok || !Array.isArray(list)) throw new Error();
+    if (!res.ok || !data.ok || !Array.isArray(list)) {
+      throw new Error(data.error || "作品集服务暂时不可用");
+    }
     const items: PortfolioItem[] = (list as BackendPortfolioItem[]).map((p) => ({
       id: p.portfolio_item_id || p.submission_id || p.title,
       studentName: p.student_name,
@@ -91,13 +140,26 @@ export async function fetchPortfolio(): Promise<{ items: PortfolioItem[]; live: 
       techStack: (p.skills || "").split(",").map((s) => s.trim()).filter(Boolean),
       demoUrl: p.demo_url || undefined,
       githubRepo: (p.github_url || "").replace(/^https?:\/\/github\.com\//, ""),
-      aiScore: 0,
+      aiScore: typeof p.ai_score === "number" ? p.ai_score : undefined,
+      teacherScore: typeof p.teacher_score === "number" ? p.teacher_score : undefined,
       isPublic: p.is_public ?? true,
       submittedAt: p.created_at || "",
     }));
     return { items, live: true };
-  } catch {
-    return { items: mockPortfolio, live: false };
+  } catch (error) {
+    // P0-6：只有显式开启的本地开发演示模式才允许使用 Mock。
+    // 正式环境和默认开发环境均失败关闭，避免把示例作品误认为真实数据。
+    const allowMock =
+      process.env.NODE_ENV === "development" &&
+      process.env.NEXT_PUBLIC_ENABLE_PORTFOLIO_MOCK === "true";
+    if (allowMock) {
+      return { items: mockPortfolio, live: false, error: "当前为 Portfolio Mock 演示模式" };
+    }
+    return {
+      items: [],
+      live: false,
+      error: error instanceof Error ? error.message : "作品集服务暂时不可用",
+    };
   }
 }
 
@@ -225,7 +287,10 @@ export async function fetchDashboardStats(): Promise<DashboardStats> {
       challengeCount: challenges.ok ? (challenges.challenges || []).length : 0,
       submissionCount: subs.length,
       pendingReview: subs.filter((s: SubmissionListItem) =>
-        s.task_state === "pending_teacher_review" || s.status === "checked"
+        s.status === "pending_teacher_review" ||
+        s.status === "checked" ||
+        s.task_state?.toUpperCase() === "PENDING_TEACHER_REVIEW" ||
+        s.task_state?.toUpperCase() === "CHECKED"
       ).length,
       completedCount: subs.filter((s: SubmissionListItem) =>
         s.task_state === "COMPLETED" || s.status === "accepted"
@@ -247,11 +312,26 @@ export type SubmissionListItem = {
   project_title: string;
   project_summary?: string;
   github_repo_url?: string;
+  github_branch?: string;
+  github_commit?: string;
+  demo_url?: string;
+  readme_url?: string;
+  aar_text?: string;
+  self_evaluation_text?: string;
   status?: string;
   task_state?: string;
   review_mode?: string;
   submitted_at?: string;
   score_total?: number;
+  task_id?: string;
+  evidence_items_json?: string;
+  result_summary?: string;
+  attachment_files?: Array<{
+    file_token: string;
+    name: string;
+    size?: number;
+    type?: string;
+  }>;
 };
 
 export type EvaluationData = {
@@ -268,6 +348,7 @@ export type EvaluationData = {
   suggestions?: string;
   scores_json?: string;
   created_at: string;
+  competency_assessment_json?: string;
 };
 
 export async function fetchSubmissions(): Promise<{ ok: boolean; submissions?: SubmissionListItem[]; error?: string }> {
@@ -287,6 +368,27 @@ export async function fetchSubmissionById(id: string): Promise<{ ok: boolean; su
     return await res.json();
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "加载失败" };
+  }
+}
+
+export async function submitTeacherReview(input: {
+  submissionId: string;
+  action: "accept" | "return";
+  score: number;
+  feedback: string;
+}): Promise<{ ok: boolean; message?: string; error?: string }> {
+  try {
+    const res = await fetch("/api/evaluations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    return await res.json();
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "提交评审失败",
+    };
   }
 }
 

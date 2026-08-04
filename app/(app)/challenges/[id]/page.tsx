@@ -1,91 +1,107 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import {
-  Target,
+  Award,
   CheckCircle2,
   ChevronRight,
-  FileText,
-  ExternalLink,
-  Github,
   Clock,
-  Award,
+  ClipboardCheck,
+  ExternalLink,
+  FileText,
+  Github,
   ListChecks,
+  RefreshCw,
+  Send,
   Tag,
+  Target,
 } from "lucide-react";
+import { fetchChallengeById, fetchCurrentUser } from "@/lib/api";
+import type { Challenge } from "@/lib/data";
+
+function splitList(value?: string) {
+  return value
+    ? value.split(/[,，、\n]/).map((item) => item.trim()).filter(Boolean)
+    : [];
+}
 
 export default function ChallengeDetailPage() {
-  const params = useParams();
-  const id = params.id as string;
-
-  const [challenge, setChallenge] = useState<{
-    id: string; number: string; title: string; description: string;
-    difficulty: string; status: string; team: string;
-    deliverables?: string; rubric?: string; deadline?: string;
-    skills?: string; github_repo?: string; objective?: string;
-  } | null>(null);
+  const params = useParams<{ id: string }>();
+  const id = params.id;
+  const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notFound, setNotFound] = useState(false);
+  const [role, setRole] = useState<string | null>(null);
+
+  const loadChallenge = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    setNotFound(false);
+
+    const [result, user] = await Promise.all([
+      fetchChallengeById(id),
+      fetchCurrentUser(),
+    ]);
+    setRole(user.ok ? user.role || null : null);
+    if (result.ok && result.challenge) {
+      setChallenge(result.challenge);
+    } else {
+      setChallenge(null);
+      setNotFound(result.status === 404);
+      setError(result.error || "加载 Challenge 失败");
+    }
+    setLoading(false);
+  }, [id]);
 
   useEffect(() => {
-    fetch("/api/challenges")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.ok && data.challenges) {
-          const found = data.challenges.find(
-            (c: Record<string, unknown>) =>
-              c.id === id || c.challenge_id === id
-          );
-          if (found) {
-            setChallenge({
-              id: (found.challenge_id || found.id) as string,
-              number: (found.number as string) || "",
-              title: (found.title as string) || "",
-              description: (found.brief || found.objective || found.description || "") as string,
-              difficulty: (found.difficulty as string) || "进阶",
-              status: (found.status === "closed" ? "已完成" : "进行中") as string,
-              team: (found.team as string) || "",
-              deliverables: found.deliverables as string,
-              rubric: found.rubric as string,
-              deadline: found.deadline as string,
-              skills: found.skills as string,
-              github_repo: found.github_repo as string,
-              objective: found.objective as string,
-            });
-          }
-        }
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
-  }, [id]);
+    void loadChallenge();
+  }, [loadChallenge]);
 
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-        <Clock className="mb-2 h-8 w-8 animate-spin" />
-        <p className="text-sm">加载中...</p>
+        <Clock className="mb-3 h-8 w-8 animate-spin" />
+        <p className="text-sm">正在加载 Challenge 详情...</p>
       </div>
     );
   }
 
   if (!challenge) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-        <FileText className="mb-2 h-8 w-8" />
-        <p className="text-sm">Challenge 未找到</p>
-        <Link href="/lms" className="mt-4 text-sm text-primary-600 hover:underline">返回课程</Link>
+      <div className="flex flex-col items-center justify-center rounded-xl border border-gray-200 bg-white py-20 text-center">
+        <FileText className="mb-3 h-9 w-9 text-gray-300" />
+        <h1 className="text-lg font-semibold text-gray-900">
+          {notFound ? "没有找到这个 Challenge" : "Challenge 加载失败"}
+        </h1>
+        <p className="mt-2 max-w-md text-sm text-gray-500">{error}</p>
+        <div className="mt-6 flex gap-3">
+          {!notFound && (
+            <button
+              onClick={() => void loadChallenge()}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+            >
+              <RefreshCw className="h-4 w-4" />
+              重新加载
+            </button>
+          )}
+          <Link
+            href="/lms"
+            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            返回 LMS
+          </Link>
+        </div>
       </div>
     );
   }
 
-  const deliverablesList = challenge.deliverables
-    ? challenge.deliverables.split(/[,，、]/).map((s) => s.trim()).filter(Boolean)
-    : [];
-
-  const skillsList = challenge.skills
-    ? challenge.skills.split(/[,，、]/).map((s) => s.trim()).filter(Boolean)
-    : [];
+  const deliverables = splitList(challenge.deliverables);
+  const skills = splitList(challenge.skills);
+  const isStudent = role === "student";
+  const isReviewer = role === "teacher" || role === "admin" || role === "ta";
 
   return (
     <div className="space-y-6">
@@ -95,103 +111,144 @@ export default function ChallengeDetailPage() {
         <span className="text-gray-900">{challenge.title}</span>
       </nav>
 
-      <div className="rounded-xl border border-gray-200 bg-white p-6">
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-mono text-gray-400">{challenge.number || challenge.id}</span>
-              <h1 className="text-2xl font-bold text-gray-900">{challenge.title}</h1>
-              <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-blue-50 text-blue-700">
+      <header className="rounded-xl border border-gray-200 bg-white p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="font-mono text-xs text-gray-400">
+                {challenge.number || challenge.id}
+              </span>
+              <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
                 {challenge.status}
               </span>
             </div>
-            <p className="mt-3 text-gray-600">{challenge.description}</p>
+            <h1 className="mt-2 text-2xl font-bold text-gray-900">{challenge.title}</h1>
+            <p className="mt-3 max-w-3xl text-gray-600">
+              {challenge.description || "暂未填写 Challenge 简介"}
+            </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 flex-col gap-3 sm:flex-row">
             {challenge.github_repo && (
-              <a href={challenge.github_repo} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                title="在 GitHub 查看">
-                <Github className="h-5 w-5" />
+              <a
+                href={challenge.github_repo}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Github className="h-4 w-4" />
+                查看 GitHub 资料
               </a>
             )}
-            <Link href="/submit"
-              className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-700">
-              提交 Challenge <ExternalLink className="h-3.5 w-3.5" />
-            </Link>
+            {isStudent && (
+              <Link
+                href={`/submit?challengeId=${encodeURIComponent(challenge.id)}`}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-700"
+              >
+                <Send className="h-4 w-4" />
+                提交 Challenge
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Link>
+            )}
+            {isReviewer && (
+              <Link
+                href={`/teacher?challengeId=${encodeURIComponent(challenge.id)}#submissions`}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-700"
+              >
+                <ClipboardCheck className="h-4 w-4" />
+                查看提交并评审
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Link>
+            )}
           </div>
         </div>
-      </div>
+      </header>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          {challenge.objective && (
-            <div className="rounded-xl border border-gray-200 bg-white p-6">
-              <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
-                <Target className="h-5 w-5 text-primary-600" /> Challenge 目标
-              </h2>
-              <p className="mt-4 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{challenge.objective}</p>
-            </div>
-          )}
+        <main className="space-y-6 lg:col-span-2">
+          <section className="rounded-xl border border-gray-200 bg-white p-6">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
+              <Target className="h-5 w-5 text-primary-600" />
+              Challenge 目标
+            </h2>
+            <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
+              {challenge.objective || challenge.description || "暂未填写目标"}
+            </p>
+          </section>
 
-          {deliverablesList.length > 0 && (
-            <div className="rounded-xl border border-gray-200 bg-white p-6">
-              <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
-                <ListChecks className="h-5 w-5 text-primary-600" /> 交付物
-              </h2>
+          <section className="rounded-xl border border-gray-200 bg-white p-6">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
+              <ListChecks className="h-5 w-5 text-primary-600" />
+              交付物
+            </h2>
+            {deliverables.length > 0 ? (
               <ul className="mt-4 space-y-2">
-                {deliverablesList.map((d, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-500" />{d}
+                {deliverables.map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-sm text-gray-700">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+                    {item}
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
+            ) : (
+              <p className="mt-4 text-sm text-gray-500">暂未填写交付物</p>
+            )}
+          </section>
 
-          {challenge.rubric && (
-            <div className="rounded-xl border border-gray-200 bg-white p-6">
-              <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
-                <Award className="h-5 w-5 text-primary-600" /> 评分标准
-              </h2>
-              <p className="mt-4 text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{challenge.rubric}</p>
-            </div>
-          )}
-        </div>
+          <section className="rounded-xl border border-gray-200 bg-white p-6">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
+              <Award className="h-5 w-5 text-primary-600" />
+              评分标准
+            </h2>
+            <p className="mt-4 whitespace-pre-wrap text-sm leading-relaxed text-gray-700">
+              {challenge.rubric || "暂未填写评分标准"}
+            </p>
+          </section>
+        </main>
 
-        <div className="space-y-4">
-          <div className="rounded-xl border border-gray-200 bg-white p-5">
-            <h3 className="text-sm font-semibold text-gray-900">基本信息</h3>
-            <dl className="mt-3 space-y-2 text-sm">
-              <div className="flex justify-between"><dt className="text-gray-500">难度</dt><dd className="text-gray-900">{challenge.difficulty}</dd></div>
-              <div className="flex justify-between"><dt className="text-gray-500">状态</dt><dd className="text-gray-900">{challenge.status}</dd></div>
-              {challenge.deadline && <div className="flex justify-between"><dt className="text-gray-500">截止</dt><dd className="text-gray-900">{challenge.deadline}</dd></div>}
-              {challenge.team && <div className="flex justify-between"><dt className="text-gray-500">团队</dt><dd className="text-gray-900">{challenge.team}</dd></div>}
+        <aside className="space-y-4">
+          <section className="rounded-xl border border-gray-200 bg-white p-5">
+            <h2 className="text-sm font-semibold text-gray-900">基本信息</h2>
+            <dl className="mt-3 space-y-3 text-sm">
+              <div className="flex justify-between gap-4">
+                <dt className="text-gray-500">Challenge ID</dt>
+                <dd className="break-all text-right font-mono text-xs text-gray-900">{challenge.id}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-gray-500">难度</dt>
+                <dd className="text-gray-900">{challenge.difficulty}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-gray-500">状态</dt>
+                <dd className="text-gray-900">{challenge.status}</dd>
+              </div>
+              {challenge.deadline && (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-gray-500">截止时间</dt>
+                  <dd className="text-right text-gray-900">{challenge.deadline}</dd>
+                </div>
+              )}
             </dl>
-          </div>
+          </section>
 
-          {skillsList.length > 0 && (
-            <div className="rounded-xl border border-gray-200 bg-white p-5">
-              <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5"><Tag className="h-4 w-4" /> 技能</h3>
+          {skills.length > 0 && (
+            <section className="rounded-xl border border-gray-200 bg-white p-5">
+              <h2 className="flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+                <Tag className="h-4 w-4" />
+                相关技能
+              </h2>
               <div className="mt-3 flex flex-wrap gap-1.5">
-                {skillsList.map((s, i) => (
-                  <span key={i} className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-700">{s}</span>
+                {skills.map((skill) => (
+                  <span
+                    key={skill}
+                    className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-700"
+                  >
+                    {skill}
+                  </span>
                 ))}
               </div>
-            </div>
+            </section>
           )}
-
-          {challenge.github_repo && (
-            <a href={challenge.github_repo} target="_blank" rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 rounded-lg border border-gray-200 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              <Github className="h-5 w-5" /> 在 GitHub 查看完整挑战
-            </a>
-          )}
-
-          <Link href="/submit" className="btn-primary flex w-full items-center justify-center gap-2 text-sm">
-            提交作品 <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        </div>
+        </aside>
       </div>
     </div>
   );

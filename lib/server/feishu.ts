@@ -1,6 +1,16 @@
 import { requireEnv } from "./env";
 import { makeId } from "./ids";
-import type { Challenge, FeishuRecord, PortfolioItem, Student, Teacher, Admin } from "./types";
+import type {
+  Admin,
+  Challenge,
+  Competency,
+  FeishuRecord,
+  PersonalTask,
+  PortfolioItem,
+  Student,
+  TaskCategory,
+  Teacher,
+} from "./types";
 
 type FeishuListResponse = {
   code: number;
@@ -126,6 +136,39 @@ const FEISHU_FIELD_NAMES: Record<string, string> = {
   ai_feedback_summary: "AI反馈摘要",
   api_key: "API Key",
   class_id: "班级ID",
+  department: "部门",
+  position: "岗位",
+  mentor_id: "带教ID",
+  internship_start_date: "入职日期",
+  internship_end_date: "预计结束日期",
+  job_direction: "岗位方向",
+  instructions_md: "完整说明",
+  competency_ids_json: "能力映射JSON",
+  evidence_requirements_json: "证据要求JSON",
+  source_type: "来源类型",
+  category_id: "任务类别ID",
+  task_id: "个人任务ID",
+  business_context: "业务背景",
+  acceptance_criteria: "验收标准",
+  start_date: "开始时间",
+  due_date: "截止时间",
+  priority: "优先级",
+  confidentiality: "保密等级",
+  risk_status: "风险状态",
+  return_count: "退回次数",
+  raw_task_brief: "原始任务描述",
+  ai_clarification_questions_json: "AI澄清问题",
+  ai_plan_json: "AI任务拆解",
+  ai_generation_mode: "AI生成模式",
+  ai_updated_at: "AI更新时间",
+  task_config_json: "任务配置JSON",
+  evidence_items_json: "交付证据JSON",
+  attachments: "成果附件",
+  result_summary: "成果摘要",
+  competency_assessment_json: "能力评价JSON",
+  competency_id: "能力ID",
+  evidence_guidance: "证据说明",
+  sort_order: "排序",
 };
 
 function appToken() {
@@ -163,8 +206,12 @@ async function getTenantAccessToken() {
 
 async function feishuRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const token = await getTenantAccessToken();
+  const method = (init?.method || "GET").toUpperCase();
   const response = await fetch(`https://open.feishu.cn/open-apis${path}`, {
     ...init,
+    // 飞书是业务数据源，任务状态、期限和 AI 结果必须实时回读。
+    // 显式禁用 Next.js 的服务端 fetch 缓存，避免发布后仍显示旧记录。
+    cache: init?.cache ?? (method === "GET" ? "no-store" : undefined),
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json; charset=utf-8",
@@ -232,6 +279,11 @@ function normalizeStudent(record: { record_id: string; fields: Record<string, un
     ai_x_direction: asString(field(f, "ai_x_direction")),
     status: asString(field(f, "status")),
     portfolio_url: asString(field(f, "portfolio_url")),
+    department: asString(field(f, "department")),
+    position: asString(field(f, "position")),
+    mentor_id: asString(field(f, "mentor_id")),
+    internship_start_date: asString(field(f, "internship_start_date")),
+    internship_end_date: asString(field(f, "internship_end_date")),
     // T06: role field (if present in table)
     ...(f["角色"] !== undefined || f["role"] !== undefined
       ? { role: asString(f["角色"] ?? f["role"]) as string }
@@ -266,7 +318,53 @@ function normalizeChallenge(record: { record_id: string; fields: Record<string, 
     created_at: asString(field(f, "created_at")),
     updated_at: asString(field(f, "updated_at")),
     github_repo: asString(f["GitHub仓库"] ?? f["github_repo"]),
+    job_direction: asString(field(f, "job_direction")) as Challenge["job_direction"],
+    instructions_md: asString(field(f, "instructions_md")),
+    competency_ids_json: asString(field(f, "competency_ids_json")),
+    evidence_requirements_json: asString(field(f, "evidence_requirements_json")),
+    source_type: asString(field(f, "source_type")) as Challenge["source_type"],
   };
+}
+
+export type FeishuAttachment = {
+  file_token: string;
+  name: string;
+  size?: number;
+  type?: string;
+  url?: string;
+  tmp_url?: string;
+};
+
+export async function uploadFeishuAttachment(file: File): Promise<FeishuAttachment> {
+  if (file.size <= 0) throw new Error("文件内容为空");
+  if (file.size > 20 * 1024 * 1024) throw new Error("单个文件不能超过 20MB");
+  const token = await getTenantAccessToken();
+  const form = new FormData();
+  form.set("file_name", file.name);
+  form.set("parent_type", "bitable_file");
+  form.set("parent_node", appToken());
+  form.set("size", String(file.size));
+  form.set("file", file, file.name);
+  const response = await fetch("https://open.feishu.cn/open-apis/drive/v1/medias/upload_all", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.code !== 0 || !payload.data?.file_token) {
+    throw new Error(`飞书附件上传失败：${payload.msg || response.statusText}`);
+  }
+  return { file_token: payload.data.file_token, name: file.name, size: file.size, type: file.type || "application/octet-stream" };
+}
+
+export async function downloadFeishuAttachment(attachment: FeishuAttachment) {
+  const token = await getTenantAccessToken();
+  const candidate = attachment.url || attachment.tmp_url || `https://open.feishu.cn/open-apis/drive/v1/medias/${encodeURIComponent(attachment.file_token)}/download`;
+  const url = new URL(candidate);
+  if (url.hostname !== "open.feishu.cn" || !url.pathname.startsWith("/open-apis/drive/v1/medias/")) {
+    throw new Error("附件下载地址不受信任");
+  }
+  return fetch(url, { headers: { Authorization: `Bearer ${token}` } });
 }
 
 function normalizePortfolio(record: { record_id: string; fields: Record<string, unknown> }): FeishuRecord<PortfolioItem> {
@@ -312,6 +410,16 @@ async function createRecord(tableId: string, fields: Record<string, unknown>) {
     body: JSON.stringify({ fields: toFeishuFields(fields) }),
   });
   return payload.data?.record;
+}
+
+async function updateRecord(tableId: string, recordId: string, fields: Record<string, unknown>) {
+  return feishuRequest<FeishuCreateResponse>(
+    `/bitable/v1/apps/${appToken()}/tables/${tableId}/records/${recordId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({ fields: toFeishuFields(fields) }),
+    },
+  );
 }
 
 export async function getStudents() {
@@ -543,7 +651,12 @@ export type EvaluationRecord = {
   evaluator_id: string;
   score_total: number;
   feedback: string;
+  strengths?: string;
+  weaknesses?: string;
+  suggestions?: string;
+  scores_json?: string;
   created_at: string;
+  competency_assessment_json?: string;
 };
 
 function normalizeEvaluation(record: { record_id: string; fields: Record<string, unknown> }): EvaluationRecord {
@@ -558,7 +671,12 @@ function normalizeEvaluation(record: { record_id: string; fields: Record<string,
     evaluator_id: asString(field(f, "evaluator_id")),
     score_total: Number(field(f, "score_total")) || 0,
     feedback: asString(field(f, "feedback")),
+    strengths: asString(field(f, "strengths")),
+    weaknesses: asString(field(f, "weaknesses")),
+    suggestions: asString(field(f, "suggestions")),
+    scores_json: asString(field(f, "scores_json")),
     created_at: asString(field(f, "created_at")),
+    competency_assessment_json: asString(field(f, "competency_assessment_json")),
   };
 }
 
@@ -614,6 +732,175 @@ export async function createChallenge(fields: Record<string, unknown>) {
   return { challenge_id, recordId: record?.record_id };
 }
 
+// ---- Task platform compatibility layer ----
+
+function normalizeTaskCategory(challenge: FeishuRecord<Challenge>): FeishuRecord<TaskCategory> {
+  return {
+    recordId: challenge.recordId,
+    category_id: challenge.challenge_id,
+    title: challenge.title,
+    job_direction: challenge.job_direction || "data_analysis",
+    summary: challenge.brief,
+    instructions_md:
+      challenge.instructions_md ||
+      [challenge.brief, challenge.objective, challenge.deliverables, challenge.rubric]
+        .filter(Boolean)
+        .join("\n\n"),
+    acceptance_criteria: challenge.rubric,
+    evidence_requirements_json: challenge.evidence_requirements_json,
+    competency_ids_json: challenge.competency_ids_json,
+    source_type: challenge.source_type || "historical_challenge",
+    status: challenge.status,
+    github_repo: challenge.github_repo,
+    created_at: challenge.created_at,
+    updated_at: challenge.updated_at,
+  };
+}
+
+export async function getTaskCategories(): Promise<Array<FeishuRecord<TaskCategory>>> {
+  const challenges = await getAllChallenges();
+  return challenges.map(normalizeTaskCategory);
+}
+
+export async function createTaskCategory(fields: Record<string, unknown>) {
+  const categoryId = asString(fields.category_id) || makeId("cat");
+  const result = await createChallenge({
+    ...fields,
+    challenge_id: categoryId,
+    source_type: fields.source_type || "business",
+  });
+  return { category_id: result.challenge_id, recordId: result.recordId };
+}
+
+function normalizePersonalTask(record: { record_id: string; fields: Record<string, unknown> }): FeishuRecord<PersonalTask> {
+  const f = record.fields;
+  let config: Partial<PersonalTask> = {};
+  try {
+    const parsed = JSON.parse(asString(field(f, "task_config_json")) || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) config = parsed;
+  } catch { /* 旧任务没有配置快照时按普通字段读取 */ }
+  return {
+    recordId: record.record_id,
+    task_id: asString(field(f, "task_id")),
+    category_id: asString(field(f, "category_id")),
+    job_direction: (asString(field(f, "job_direction")) || "data_analysis") as PersonalTask["job_direction"],
+    student_id: asString(field(f, "student_id")),
+    mentor_id: asString(field(f, "mentor_id")),
+    title: asString(field(f, "title")),
+    business_context: asString(field(f, "business_context")),
+    objective: asString(field(f, "objective")),
+    instructions_md: asString(field(f, "instructions_md")),
+    acceptance_criteria: asString(field(f, "acceptance_criteria")),
+    evidence_requirements_json: asString(field(f, "evidence_requirements_json")),
+    competency_ids_json: asString(field(f, "competency_ids_json")),
+    start_date: asString(field(f, "start_date")),
+    // Tasks 表是新建的独立业务表，直接兼容中文字段与旧英文键，
+    // 避免飞书字段缓存更新期间把期限、优先级等误读为空。
+    due_date: asString(f["截止时间"] ?? f["due_date"] ?? config.due_date),
+    priority: asString(f["优先级"] ?? f["priority"] ?? config.priority) as PersonalTask["priority"],
+    confidentiality: asString(f["保密等级"] ?? f["confidentiality"] ?? config.confidentiality) as PersonalTask["confidentiality"],
+    status: asString(f["状态"] ?? f["status"] ?? config.status) as PersonalTask["status"],
+    risk_status: asString(f["风险状态"] ?? f["risk_status"]) as PersonalTask["risk_status"],
+    return_count: Number(field(f, "return_count") || 0),
+    is_public: asBoolean(field(f, "is_public")),
+    created_at: asString(field(f, "created_at")),
+    updated_at: asString(field(f, "updated_at")),
+    raw_task_brief: asString(field(f, "raw_task_brief")),
+    ai_clarification_questions_json: asString(field(f, "ai_clarification_questions_json")),
+    ai_plan_json: asString(field(f, "ai_plan_json")),
+    ai_generation_mode: asString(field(f, "ai_generation_mode")) as PersonalTask["ai_generation_mode"],
+    ai_updated_at: asString(field(f, "ai_updated_at")),
+    task_config_json: asString(field(f, "task_config_json")),
+  };
+}
+
+export async function getPersonalTasks(): Promise<Array<FeishuRecord<PersonalTask>>> {
+  const tableId = process.env.FEISHU_TASKS_TABLE_ID;
+  if (!tableId) return [];
+  return (await listRecords(tableId)).map(normalizePersonalTask);
+}
+
+export async function getPersonalTaskById(taskId: string) {
+  return (await getPersonalTasks()).find((task) => task.task_id === taskId) || null;
+}
+
+async function getMergedPersonalTaskRecord(recordId: string) {
+  const tableId = requireEnv("FEISHU_TASKS_TABLE_ID");
+  const [payload, rows] = await Promise.all([
+    feishuRequest<FeishuCreateResponse>(
+    `/bitable/v1/apps/${appToken()}/tables/${tableId}/records/${encodeURIComponent(recordId)}`,
+    { cache: "no-store" },
+    ),
+    listRecords(tableId),
+  ]);
+  const single = payload.data?.record;
+  const listed = rows.find((row) => row.record_id === recordId);
+  if (!single && !listed) return null;
+  return {
+    record_id: recordId,
+    // 飞书单条详情与列表接口在字段刚更新后可能短暂返回不同子集，
+    // 合并两者可以避免截止日期、优先级或保密等级暂时消失。
+    fields: { ...(listed?.fields || {}), ...(single?.fields || {}) },
+  };
+}
+
+export async function getPersonalTaskByRecordId(recordId: string) {
+  const record = await getMergedPersonalTaskRecord(recordId);
+  return record ? normalizePersonalTask(record) : null;
+}
+
+export async function createPersonalTask(fields: Record<string, unknown>) {
+  const tableId = requireEnv("FEISHU_TASKS_TABLE_ID");
+  const taskId = asString(fields.task_id) || makeId("task");
+  const record = await createRecord(tableId, {
+    ...fields,
+    task_id: taskId,
+    is_public: false,
+    status: fields.status || "assigned",
+    risk_status: fields.risk_status || "normal",
+    created_at: fields.created_at || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+  return { task_id: taskId, recordId: record?.record_id };
+}
+
+export async function updatePersonalTask(recordId: string, fields: Record<string, unknown>) {
+  // 飞书的单条记录更新接口只修改传入字段，不需要把整条记录重新写回。
+  // 重新提交列表接口返回的格式化字段会触发 NumberFieldConvFail，且会额外产生
+  // 两次读取请求。这里只发送真正变化的字段，既避免类型污染，也缩短操作等待。
+  await updateRecord(requireEnv("FEISHU_TASKS_TABLE_ID"), recordId, {
+    ...fields,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+function normalizeCompetency(record: { record_id: string; fields: Record<string, unknown> }): FeishuRecord<Competency> {
+  const f = record.fields;
+  return {
+    recordId: record.record_id,
+    competency_id: asString(field(f, "competency_id")),
+    name: asString(field(f, "name")),
+    job_direction: (asString(field(f, "job_direction")) || "common") as Competency["job_direction"],
+    description: asString(field(f, "description")),
+    evidence_guidance: asString(field(f, "evidence_guidance")),
+    sort_order: Number(field(f, "sort_order") || 0),
+    status: asString(field(f, "status")),
+  };
+}
+
+export async function getCompetencies(): Promise<Array<FeishuRecord<Competency>>> {
+  const tableId = process.env.FEISHU_COMPETENCIES_TABLE_ID;
+  if (!tableId) return [];
+  return (await listRecords(tableId)).map(normalizeCompetency);
+}
+
+export async function createCompetency(fields: Record<string, unknown>) {
+  const tableId = requireEnv("FEISHU_COMPETENCIES_TABLE_ID");
+  const competencyId = asString(fields.competency_id) || makeId("comp");
+  const record = await createRecord(tableId, { ...fields, competency_id: competencyId });
+  return { competency_id: competencyId, recordId: record?.record_id };
+}
+
 // ---- Submissions read (T10) ----
 
 export type SubmissionRecord = FeishuRecord<{
@@ -651,10 +938,19 @@ export type SubmissionRecord = FeishuRecord<{
   routed_to_teacher_agent_id?: string;
   routed_to_peer_agent_ids?: string;
   skills_used?: string;
+  task_id?: string;
+  evidence_items_json?: string;
+  result_summary?: string;
+  submitted_files?: string;
+  attachment_files?: FeishuAttachment[];
 }>;
 
 function normalizeSubmission(record: { record_id: string; fields: Record<string, unknown> }): SubmissionRecord {
   const f = record.fields;
+  const attachmentValue = field(f, "attachments");
+  const attachmentFiles = Array.isArray(attachmentValue)
+    ? attachmentValue.filter((item): item is FeishuAttachment => Boolean(item && typeof item === "object" && "file_token" in item))
+    : [];
   return {
     recordId: record.record_id,
     submission_id: asString(field(f, "submission_id")),
@@ -692,6 +988,11 @@ function normalizeSubmission(record: { record_id: string; fields: Record<string,
     routed_to_teacher_agent_id: asString(field(f, "routed_to_teacher_agent_id")),
     routed_to_peer_agent_ids: asString(field(f, "routed_to_peer_agent_ids")),
     skills_used: asString(field(f, "skills_used")),
+    task_id: asString(field(f, "task_id")),
+    evidence_items_json: asString(field(f, "evidence_items_json")),
+    result_summary: asString(field(f, "result_summary")),
+    submitted_files: asString(field(f, "submitted_files")),
+    attachment_files: attachmentFiles,
   };
 }
 

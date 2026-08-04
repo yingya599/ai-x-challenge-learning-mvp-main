@@ -20,6 +20,8 @@ const PROTECTED_PREFIXES = [
   "/github",
   "/knowledge",
   "/docs",
+  "/management",
+  "/tasks",
 ];
 
 export function middleware(request: NextRequest) {

@@ -8,7 +8,7 @@ import { busAdapter } from "@/lib/server/bus-adapter";
 import { buildEnvelope } from "@/lib/server/agents";
 import { createTask } from "@/lib/server/tasks";
 import { makeId } from "@/lib/server/ids";
-import { getBoundStudentId, isStaff } from "@/lib/server/rbac";
+import { getBoundStudentId } from "@/lib/server/rbac";
 
 export async function POST(request: Request) {
   try {
@@ -21,28 +21,27 @@ export async function POST(request: Request) {
 
     // T03: Row-level permission — use bound student identity (works for both student and agent roles)
     const boundStudentId = getBoundStudentId(principal);
-    if (boundStudentId !== null) {
-      // Auto-fill studentId from session if not provided
-      if (!input.studentId) {
-        input.studentId = boundStudentId;
-      }
-      // Student or student-companion agent: can only submit as themselves
-      if (input.studentId !== boundStudentId) {
-        const audit = new AuditTrail();
-        audit.log(SUBMISSION_TASK_AGENT, "identity_mismatch", input.studentId, {
-          error_trace: `Principal ${principal.person} (role=${principal.role}) tried to submit as ${input.studentId}`,
-        });
-        enqueue(audit.entries);
-        await flush();
-        return NextResponse.json(
-          { ok: false, error: "无权代他人提交", auditTrail: audit.entries },
-          { status: 403 },
-        );
-      }
-    } else if (!isStaff(principal)) {
-      // Not bound to a student and not staff → reject
+    if (boundStudentId === null) {
       return NextResponse.json(
-        { ok: false, error: "无权提交" },
+        { ok: false, error: "仅学生账号可以提交 Challenge" },
+        { status: 403 },
+      );
+    }
+
+    // Auto-fill studentId from session if not provided
+    if (!input.studentId) {
+      input.studentId = boundStudentId;
+    }
+    // Student or student-companion agent: can only submit as themselves
+    if (input.studentId !== boundStudentId) {
+      const audit = new AuditTrail();
+      audit.log(SUBMISSION_TASK_AGENT, "identity_mismatch", input.studentId, {
+        error_trace: `Principal ${principal.person} (role=${principal.role}) tried to submit as ${input.studentId}`,
+      });
+      enqueue(audit.entries);
+      await flush();
+      return NextResponse.json(
+        { ok: false, error: "无权代他人提交", auditTrail: audit.entries },
         { status: 403 },
       );
     }
