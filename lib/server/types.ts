@@ -21,6 +21,143 @@ export type Student = {
   ai_x_direction?: string;
   status?: string;
   portfolio_url?: string;
+  department?: string;
+  position?: string;
+  mentor_id?: string;
+  internship_start_date?: string;
+  internship_end_date?: string;
+};
+
+export type JobDirection = "business_analysis" | "data_analysis" | "quant";
+
+export type EvidenceType =
+  | "document"
+  | "spreadsheet"
+  | "presentation"
+  | "dashboard"
+  | "github"
+  | "demo"
+  | "other";
+
+export type EvidenceRequirement = {
+  type: EvidenceType;
+  label: string;
+  required: boolean;
+};
+
+export type EvidenceItem = {
+  type: EvidenceType;
+  label: string;
+  url: string;
+  note?: string;
+};
+
+export type UploadedTaskFile = {
+  file_token: string;
+  name: string;
+  size: number;
+  type: string;
+  evidence_type: EvidenceType;
+};
+
+export type TaskCategory = {
+  category_id: string;
+  title: string;
+  job_direction: JobDirection;
+  summary?: string;
+  instructions_md?: string;
+  acceptance_criteria?: string;
+  evidence_requirements_json?: string;
+  competency_ids_json?: string;
+  source_type?: "business" | "historical_challenge" | "template";
+  status?: string;
+  github_repo?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type PersonalTask = {
+  recordId?: string;
+  task_id: string;
+  category_id: string;
+  job_direction: JobDirection;
+  student_id: string;
+  mentor_id: string;
+  title: string;
+  business_context?: string;
+  objective?: string;
+  instructions_md?: string;
+  acceptance_criteria?: string;
+  evidence_requirements_json?: string;
+  competency_ids_json?: string;
+  start_date?: string;
+  due_date?: string;
+  priority?: "low" | "medium" | "high" | "urgent";
+  confidentiality?: "internal" | "confidential" | "restricted";
+  status?: "draft" | "assigned" | "in_progress" | "submitted" | "returned" | "accepted" | "cancelled";
+  risk_status?: "normal" | "due_soon" | "overdue" | "repeated_return" | "no_progress";
+  return_count?: number;
+  is_public?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  raw_task_brief?: string;
+  ai_clarification_questions_json?: string;
+  ai_plan_json?: string;
+  ai_generation_mode?: "model" | "demo";
+  ai_updated_at?: string;
+  task_config_json?: string;
+};
+
+export type AiGenerationMode = "model" | "demo";
+
+export type TaskDraft = {
+  title: string;
+  business_context: string;
+  objective: string;
+  acceptance_criteria: string;
+  priority: "low" | "medium" | "high" | "urgent";
+  confidentiality: "internal" | "confidential" | "restricted";
+  evidence_requirements: EvidenceRequirement[];
+  clarification_questions: string[];
+  assumptions: string[];
+  suggested_category_title?: string;
+  mode: AiGenerationMode;
+};
+
+export type TaskPlanStep = {
+  title: string;
+  purpose: string;
+  actions: string[];
+  deliverable: string;
+  mentor_checkpoint?: string;
+};
+
+export type TaskPlan = {
+  summary: string;
+  steps: TaskPlanStep[];
+  clarification_questions: string[];
+  risks: string[];
+  pre_submit_checklist: string[];
+  mode: AiGenerationMode;
+  generated_at: string;
+};
+
+export type Competency = {
+  competency_id: string;
+  name: string;
+  job_direction: JobDirection | "common";
+  description?: string;
+  evidence_guidance?: string;
+  sort_order?: number;
+  status?: string;
+};
+
+export type CompetencyAssessmentLevel = "not_demonstrated" | "emerging" | "meets" | "outstanding";
+
+export type CompetencyAssessment = {
+  competency_id: string;
+  level: CompetencyAssessmentLevel;
+  note?: string;
 };
 
 export type RubricDimension = {
@@ -70,6 +207,11 @@ export type Challenge = {
   created_at?: string;
   updated_at?: string;
   github_repo?: string;
+  job_direction?: JobDirection;
+  instructions_md?: string;
+  competency_ids_json?: string;
+  evidence_requirements_json?: string;
+  source_type?: "business" | "historical_challenge" | "template";
 };
 
 export type SubmissionInput = {
@@ -78,6 +220,9 @@ export type SubmissionInput = {
   projectTitle: string;
   projectSummary: string;
   githubRepoUrl: string;
+  taskId?: string;
+  evidenceItems?: EvidenceItem[];
+  resultSummary?: string;
   githubBranch?: string;
   readmeUrl?: string;
   demoUrl?: string;
@@ -161,6 +306,7 @@ export type Teacher = {
   status?: string;
   feishu_open_id?: string;
   teacher_agent_id?: string;
+  department?: string;
 };
 
 export type Admin = {

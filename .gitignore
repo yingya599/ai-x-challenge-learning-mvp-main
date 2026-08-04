@@ -2,6 +2,7 @@ node_modules/
 .npm-cache/
 .redis-data/
 .richard-analysis/
+.codex/
 .next/
 .next-dev/
 .next-pytest/
@@ -13,3 +14,4 @@ __pycache__/
 tsconfig.tsbuildinfo
 .env.local.bak
 .env*.bak
+.feishu-*.local.json

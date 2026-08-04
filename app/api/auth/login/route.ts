@@ -11,6 +11,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const personId = String(body.studentId ?? body.userId ?? "").trim();
     const name = String(body.name ?? "").trim();
+    const portal = String(body.portal ?? "").trim();
 
     if (!personId || !name) {
       return NextResponse.json(
@@ -97,6 +98,21 @@ export async function POST(request: Request) {
     // Determine role
     const role = await determineRole(personId);
 
+    // 页面入口和业务角色保持一致，避免带教误从领导端进入，
+    // 也避免领导账号继续混在实习生/带教入口里。
+    if (portal === "member" && (role === "leader" || role === "admin")) {
+      return NextResponse.json(
+        { ok: false, error: "领导和管理员请从“领导 / 管理员”入口登录" },
+        { status: 403 },
+      );
+    }
+    if (portal === "leadership" && role !== "leader" && role !== "admin") {
+      return NextResponse.json(
+        { ok: false, error: "该入口仅供领导或系统管理员使用" },
+        { status: 403 },
+      );
+    }
+
     // Sign session token
     const token = signToken({
       person: personId,
@@ -112,7 +128,7 @@ export async function POST(request: Request) {
         { status: 403 },
       );
     }
-    const redirect = role === "student" ? "/dashboard" : "/teacher";
+    const redirect = role === "student" ? "/tasks" : "/management";
 
     const response = NextResponse.json({
       ok: true,
@@ -126,7 +142,7 @@ export async function POST(request: Request) {
 
     response.cookies.set(SESSION_COOKIE, token, {
       httpOnly: true,
-      secure: process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production",
+      secure: process.env.COOKIE_SECURE === "true",
       sameSite: "lax",
       path: "/",
       maxAge: 60 * 60 * 24, // 24h

@@ -110,6 +110,41 @@ async function writeSingleAuditRecord(
   }
 }
 
+async function writeAuditBatch(
+  batch: AuditLog[],
+  token: string,
+  appToken: string,
+): Promise<void> {
+  const records = batch.map((entry) => ({
+    fields: toFeishuFields({
+      audit_id: entry.audit_id,
+      timestamp: entry.timestamp,
+      agent_id: entry.agent_id,
+      action: entry.action,
+      target_resource: entry.target_resource,
+      related_message_id: entry.related_message_id || "",
+      before_state: entry.before_state !== undefined ? JSON.stringify(entry.before_state) : "",
+      after_state: entry.after_state !== undefined ? JSON.stringify(entry.after_state) : "",
+      error_trace: entry.error_trace !== undefined ? JSON.stringify(entry.error_trace) : "",
+    }),
+  }));
+  const resp = await fetch(
+    `https://open.feishu.cn/open-apis/bitable/v1/apps/${appToken}/tables/${getAuditLogsTableId()}/records/batch_create`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify({ records }),
+    },
+  );
+  const payload = await resp.json();
+  if (!resp.ok || payload.code !== 0) {
+    throw new Error(`Feishu audit batch write failed: ${payload.msg || resp.statusText}`);
+  }
+}
+
 async function batchWriteWithRetry(batch: AuditLog[]): Promise<void> {
   let lastError: Error | null = null;
 
@@ -123,9 +158,8 @@ async function batchWriteWithRetry(batch: AuditLog[]): Promise<void> {
       const token = await getTenantToken();
       const appToken = requireEnv("FEISHU_APP_TOKEN");
 
-      for (const entry of batch) {
-        await writeSingleAuditRecord(entry, token, appToken);
-      }
+      // 一次终审会产生多条审计事件。批量写入把 N 次飞书网络往返压缩为 1 次。
+      await writeAuditBatch(batch, token, appToken);
       return; // success
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));

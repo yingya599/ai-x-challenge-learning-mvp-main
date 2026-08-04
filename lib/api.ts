@@ -323,6 +323,15 @@ export type SubmissionListItem = {
   review_mode?: string;
   submitted_at?: string;
   score_total?: number;
+  task_id?: string;
+  evidence_items_json?: string;
+  result_summary?: string;
+  attachment_files?: Array<{
+    file_token: string;
+    name: string;
+    size?: number;
+    type?: string;
+  }>;
 };
 
 export type EvaluationData = {
@@ -339,6 +348,7 @@ export type EvaluationData = {
   suggestions?: string;
   scores_json?: string;
   created_at: string;
+  competency_assessment_json?: string;
 };
 
 export async function fetchSubmissions(): Promise<{ ok: boolean; submissions?: SubmissionListItem[]; error?: string }> {

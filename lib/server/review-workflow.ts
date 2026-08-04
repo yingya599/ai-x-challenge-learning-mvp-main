@@ -2,6 +2,7 @@
 // The teacher confirms or returns a submission. Writes Evaluations (teacher type),
 // updates Submission status + task_state, audits, and notifies the student.
 import * as feishu from "./feishu";
+import { after } from "next/server";
 import {
   AuditTrail,
   buildEnvelope,
@@ -20,6 +21,17 @@ import {
 } from "./submission-state";
 import { makeId } from "./ids";
 import { selectEffectiveTeacherEvaluation } from "./evaluation-policy";
+
+const localLockScope = globalThis as typeof globalThis & {
+  __nseapTeacherReviewLocks?: Map<string, string>;
+};
+
+function localTeacherReviewLocks() {
+  if (!localLockScope.__nseapTeacherReviewLocks) {
+    localLockScope.__nseapTeacherReviewLocks = new Map<string, string>();
+  }
+  return localLockScope.__nseapTeacherReviewLocks;
+}
 
 export interface TeacherReviewInput {
   submissionId: string;
@@ -49,11 +61,13 @@ export interface TeacherReviewResult {
 
 export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<TeacherReviewResult> {
   const audit = new AuditTrail();
-  const redis = getRedis();
+  let redis = getRedis();
   const lockKey = `nseap:lock:teacher-final-review:${input.submissionId}`;
   const lockToken = makeId("review-lock");
   const auditActor = input.reviewerId || input.reviewerAgentId || WEBAPP_FALLBACK_TEACHER_AGENT;
   let lockAcquired = false;
+  let localLockAcquired = false;
+  const allowLocalLock = process.env.REVIEW_LOCK_MODE === "local";
 
   const persistAudit = async () => {
     enqueue(audit.entries);
@@ -93,26 +107,37 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
       };
     }
 
-    // P0-5：教师终审必须失败关闭。没有 Redis 就不能保证并发下只写一次。
-    if (!redis) {
-      return lockUnavailable();
+    // 正式环境继续失败关闭；本地演示可显式启用单进程锁，无需安装 Redis。
+    // 单进程锁只用于本机验收，不能替代生产环境的跨实例 Redis NX 锁。
+    if (redis) {
+      try {
+        const pong = await redis.ping();
+        if (pong !== "PONG") throw new Error("Redis ping failed");
+      } catch (error) {
+        if (!allowLocalLock) return lockUnavailable(error);
+        redis = null;
+      }
     }
 
-    try {
-      // getRedis() 首次创建连接时可能仍处于 connecting；PING 会等待 ready，
-      // 同时把真实连接故障统一转换为 503。
-      const pong = await redis.ping();
-      if (pong !== "PONG") throw new Error("Redis ping failed");
-    } catch (error) {
-      return lockUnavailable(error);
+    let acquired = false;
+    if (redis) {
+      try {
+        acquired = (await redis.set(lockKey, lockToken, "EX", 120, "NX")) === "OK";
+      } catch (error) {
+        if (!allowLocalLock) return lockUnavailable(error);
+        redis = null;
+      }
     }
-
-    let acquired: string | null;
-    try {
-      acquired = await redis.set(lockKey, lockToken, "EX", 120, "NX");
-    } catch (error) {
-      return lockUnavailable(error);
+    if (!redis && allowLocalLock) {
+      const locks = localTeacherReviewLocks();
+      if (!locks.has(lockKey)) {
+        locks.set(lockKey, lockToken);
+        localLockAcquired = true;
+        acquired = true;
+        audit.log(auditActor, "teacher_review_local_lock_acquired", input.submissionId);
+      }
     }
+    if (!redis && !allowLocalLock) return lockUnavailable();
     if (!acquired) {
       audit.log(auditActor, "teacher_review_lock_conflict", input.submissionId);
       await persistAudit();
@@ -123,10 +148,13 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
         auditTrail: audit.entries,
       };
     }
-    lockAcquired = true;
+    lockAcquired = Boolean(redis);
 
     // 锁内重新读取飞书，飞书记录是终审是否完成的最终依据。
-    const submission = await feishu.getSubmissionById(input.submissionId);
+    const [submission, existingEvaluations] = await Promise.all([
+      feishu.getSubmissionById(input.submissionId),
+      feishu.getEvaluationsBySubmission(input.submissionId),
+    ]);
     if (!submission || !submission.recordId) {
       audit.log(auditActor, "teacher_review_submission_not_found", input.submissionId);
       await persistAudit();
@@ -138,7 +166,6 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
       };
     }
 
-    const existingEvaluations = await feishu.getEvaluationsBySubmission(input.submissionId);
     const existingTeacherEvaluation =
       selectEffectiveTeacherEvaluation(existingEvaluations);
     if (existingTeacherEvaluation) {
@@ -212,6 +239,12 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
     // 飞书读取可能较慢；真正写评价前续期并再次确认锁仍由本请求持有。
     // 若锁已经丢失则失败关闭，绝不继续写入第二条终审评价。
     try {
+      if (!redis && localLockAcquired) {
+        if (localTeacherReviewLocks().get(lockKey) !== lockToken) {
+          localLockAcquired = false;
+          throw new Error("Local review lock lost");
+        }
+      } else if (redis) {
       const renewed = await redis.eval(
         "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end",
         1,
@@ -230,9 +263,18 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
           auditTrail: audit.entries,
         };
       }
+      }
     } catch (error) {
-      lockAcquired = false;
-      return lockUnavailable(error);
+      if (redis) {
+        lockAcquired = false;
+        return lockUnavailable(error);
+      }
+      return {
+        ok: false,
+        error: "本地终审锁已失效，请刷新后重试",
+        errorCode: "CONFLICT",
+        auditTrail: audit.entries,
+      };
     }
 
     // 3. Write teacher evaluation to Evaluations table
@@ -282,26 +324,39 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
       }
     }
 
-    // 5. Notify student (T8)
-    const actionText = input.action === "accept" ? "通过 ✅" : "需要修改 ⚠️";
-    const notifyResult = await notifyStudent(submission.student_id,
-      `📢 你的提交教师终评结果：\n${actionText}\n分数：${input.score}/100\n评语：${input.feedback}`
-    );
-    if (!notifyResult.ok) {
-      audit.log(SUBMISSION_TASK_AGENT, "notify_failed", submission.student_id, { error_trace: notifyResult.error });
-    }
-
-    await persistAudit();
-
-    // AGENT_CN.md §3.3: update ontology memory after teacher review.
-    void updateStudentMemory(submission.student_id, {
-      learning_state: "reviewed",
-      last_feedback: {
-        from: input.reviewerAgentId || input.reviewerId,
-        summary_pointer: input.submissionId,
-        ts: new Date().toISOString(),
-      },
-    }).catch(() => {});
+    // 5. 评价与 Submission 状态已经是终审的权威结果，可以立即响应页面。
+    // 通知、Tasks 状态投影、审计和记忆属于派生写入，使用 Next after 保证请求完成后继续执行，
+    // 避免带教为四组彼此独立的飞书网络请求多等待十余秒。
+    after(async () => {
+      const actionText = input.action === "accept" ? "通过 ✅" : "需要修改 ⚠️";
+      const notificationPromise = notifyStudent(submission.student_id,
+        `📢 你的提交教师终评结果：\n${actionText}\n分数：${input.score}/100\n评语：${input.feedback}`
+      );
+      const taskProjectionPromise = (async () => {
+        if (!submission.task_id) return;
+        const personalTask = await feishu.getPersonalTaskById(submission.task_id);
+        if (!personalTask?.recordId) return;
+        const nextReturnCount = input.action === "return" ? (personalTask.return_count || 0) + 1 : personalTask.return_count || 0;
+        await feishu.updatePersonalTask(personalTask.recordId, {
+          status: input.action === "accept" ? "accepted" : "returned",
+          risk_status: input.action === "accept" ? "normal" : nextReturnCount >= 2 ? "repeated_return" : "normal",
+          return_count: nextReturnCount,
+        });
+      })();
+      const [notifyResult] = await Promise.all([notificationPromise, taskProjectionPromise]);
+      if (!notifyResult.ok) {
+        audit.log(SUBMISSION_TASK_AGENT, "notify_failed", submission.student_id, { error_trace: notifyResult.error });
+      }
+      await persistAudit();
+      await updateStudentMemory(submission.student_id, {
+        learning_state: "reviewed",
+        last_feedback: {
+          from: input.reviewerAgentId || input.reviewerId,
+          summary_pointer: input.submissionId,
+          ts: new Date().toISOString(),
+        },
+      }).catch(() => {});
+    });
 
     return {
       ok: true,
@@ -328,6 +383,10 @@ export async function teacherFinalizeReview(input: TeacherReviewInput): Promise<
         lockKey,
         lockToken,
       ).catch(() => {});
+    }
+    if (localLockAcquired) {
+      const locks = localTeacherReviewLocks();
+      if (locks.get(lockKey) === lockToken) locks.delete(lockKey);
     }
   }
 }

@@ -14,6 +14,8 @@ import {
   Loader2,
   Lock,
   MessageSquare,
+  FileText,
+  Paperclip,
   RefreshCw,
   RotateCcw,
   Sparkles,
@@ -72,7 +74,7 @@ export default function TeacherReviewDetailPage() {
 
     const currentRole = user.role || "";
     setRole(currentRole);
-    if (!["teacher", "admin", "ta"].includes(currentRole)) {
+    if (!["teacher", "mentor", "leader", "ta"].includes(currentRole)) {
       router.replace(`/submissions/${encodeURIComponent(submissionId)}`);
       return;
     }
@@ -170,10 +172,10 @@ export default function TeacherReviewDetailPage() {
     );
   }
 
-  const backHref = submission.challenge_id
-    ? `/teacher?challengeId=${encodeURIComponent(submission.challenge_id)}#submissions`
-    : "/teacher#submissions";
-  const canFinalize = role === "teacher" || role === "admin";
+  const backHref = "/management/reviews";
+  const canFinalize = ["teacher", "mentor", "leader"].includes(role);
+  let evidenceItems: Array<{ type: string; label: string; url: string; note?: string }> = [];
+  try { evidenceItems = JSON.parse(submission.evidence_items_json || "[]"); } catch {}
 
   return (
     <div className="space-y-6">
@@ -225,8 +227,36 @@ export default function TeacherReviewDetailPage() {
         <main className="space-y-6">
           <EvidenceCard title="项目摘要">
             <p className="whitespace-pre-wrap">
-              {submission.project_summary || "学生暂未填写项目摘要。"}
+              {submission.result_summary || submission.project_summary || "实习生暂未填写成果摘要。"}
             </p>
+          </EvidenceCard>
+
+          <EvidenceCard title="交付证据">
+            {(submission.attachment_files?.length || evidenceItems.length) ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {(submission.attachment_files || []).map((item) => (
+                  <a
+                    key={item.file_token}
+                    href={`/api/submissions/${encodeURIComponent(submission.submission_id)}/attachments/${encodeURIComponent(item.file_token)}`}
+                    className="flex items-center justify-between rounded-xl border border-gray-200 p-3 hover:border-primary-200 hover:bg-primary-50/30"
+                  >
+                    <span className="flex min-w-0 items-center gap-2 font-medium text-gray-800">
+                      <Paperclip className="h-4 w-4 shrink-0 text-primary-600" />
+                      <span className="truncate">{item.name || "成果附件"}</span>
+                    </span>
+                    <span className="ml-2 shrink-0 text-xs text-primary-700">下载</span>
+                  </a>
+                ))}
+                {evidenceItems.map((item, index) => (
+                  <a key={`${item.url}-${index}`} href={item.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-xl border border-gray-200 p-3 hover:border-primary-200 hover:bg-primary-50/30">
+                    <span className="flex items-center gap-2 font-medium text-gray-800"><FileText className="h-4 w-4 text-primary-600" />{item.label || item.type}</span>
+                    <ExternalLink className="h-4 w-4 text-gray-400" />
+                  </a>
+                ))}
+              </div>
+            ) : submission.github_repo_url ? (
+              <a href={submission.github_repo_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 text-primary-700"><Github className="h-4 w-4" />打开 GitHub 证据</a>
+            ) : <p className="text-gray-500">该历史提交没有结构化证据链接。</p>}
           </EvidenceCard>
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
@@ -391,9 +421,9 @@ export default function TeacherReviewDetailPage() {
             <h2 className="text-sm font-semibold text-gray-900">提交信息</h2>
             <dl className="mt-3 space-y-3 text-sm">
               <div className="flex justify-between gap-4">
-                <dt className="text-gray-500">Challenge ID</dt>
+                <dt className="text-gray-500">任务/类别 ID</dt>
                 <dd className="break-all text-right font-mono text-xs text-gray-900">
-                  {submission.challenge_id || "—"}
+                  {submission.task_id || submission.challenge_id || "—"}
                 </dd>
               </div>
               <div className="flex justify-between gap-4">

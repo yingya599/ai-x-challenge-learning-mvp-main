@@ -21,6 +21,8 @@ export type TeacherReviewAction = "accept" | "return";
 const STATUS_SET = new Set<string>(SUBMISSION_STATUSES);
 
 const TASK_STATE_TO_STATUS: Record<string, SubmissionStatus> = {
+  // Personal tasks are submitted directly to the mentor review queue.
+  SUBMITTED: "pending_teacher_review",
   RECEIVED: "submitted",
   VALIDATING: "validating",
   CHECK_FAILED: "needs_revision",
