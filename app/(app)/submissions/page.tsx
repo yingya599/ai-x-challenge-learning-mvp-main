@@ -70,7 +70,7 @@ export default function SubmissionsPage() {
       <div>
         <h1 className="text-xl font-semibold text-gray-900">提交记录</h1>
         <p className="mt-1 text-sm text-gray-500">
-          共 {subs.length} 条提交记录，点击查看 AI 评分详情
+          共 {subs.length} 条任务提交，点击即可查看提交时保存的 AI 初评和带教反馈
         </p>
       </div>
 
@@ -79,7 +79,7 @@ export default function SubmissionsPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="搜索项目名称、仓库..."
+            placeholder="搜索任务名称或交付链接..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full rounded-lg border border-gray-200 py-2 pl-10 pr-4 text-sm focus:border-primary-500 focus:outline-none"
@@ -95,10 +95,10 @@ export default function SubmissionsPage() {
           </p>
           {subs.length === 0 && (
             <Link
-              href="/submit"
+              href="/tasks"
               className="mt-4 inline-flex items-center gap-1 text-sm text-primary-600 hover:underline"
             >
-              去提交第一个 Challenge →
+              查看我的任务 →
             </Link>
           )}
         </div>
@@ -108,8 +108,8 @@ export default function SubmissionsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50">
-                  <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">项目</th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">仓库</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">任务</th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">交付证据</th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase">提交时间</th>
                   <th className="px-5 py-3 text-center text-xs font-medium text-gray-500 uppercase">AI 评分</th>
                   <th className="px-5 py-3 text-center text-xs font-medium text-gray-500 uppercase">状态</th>
@@ -136,7 +136,7 @@ export default function SubmissionsPage() {
                             {s.github_repo_url.replace(/^https?:\/\/github\.com\//, "").substring(0, 25)}
                           </a>
                         ) : (
-                          <span className="text-xs text-gray-400">—</span>
+                          <span className="text-xs text-gray-400">非 GitHub 交付</span>
                         )}
                       </td>
                       <td className="px-5 py-4 text-xs text-gray-500">

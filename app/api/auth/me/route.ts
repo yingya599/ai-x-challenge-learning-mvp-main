@@ -19,7 +19,7 @@ export async function GET() {
       const student = await getStudentById(principal.person);
       name = student.name;
       class_id = student.class_id;
-    } else if (principal.role === "teacher") {
+    } else if (["teacher", "mentor", "leader"].includes(principal.role)) {
       const teacher = await getTeacherById(principal.person);
       if (teacher) name = teacher.name;
     } else if (principal.role === "admin") {
@@ -37,5 +37,15 @@ export async function GET() {
     org: principal.org,
     name: name || principal.name,
     class_id,
+    display_role:
+      principal.role === "student" || principal.role === "agent"
+        ? "实习生"
+        : principal.role === "leader"
+          ? "领导"
+          : principal.role === "teacher" || principal.role === "mentor"
+            ? "带教"
+            : principal.role === "admin"
+              ? "系统管理员"
+              : principal.role,
   });
 }

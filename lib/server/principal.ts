@@ -134,12 +134,12 @@ export async function determineRole(personId: string): Promise<string> {
 
   try {
     const admin = await getAdminById(personId);
-    if (admin) return admin.role || "admin";
+    if (admin) return normalizeStoredRole(admin.role, "admin");
   } catch { /* table might not exist yet */ }
 
   try {
     const teacher = await getTeacherById(personId);
-    if (teacher) return teacher.role || "teacher";
+    if (teacher) return normalizeStoredRole(teacher.role, "teacher");
   } catch { /* table might not exist yet */ }
 
   // Fallback to TEACHER_IDS env var (deprecated, kept for backward compat)
@@ -153,6 +153,18 @@ export async function determineRole(personId: string): Promise<string> {
   }
 
   return "student";
+}
+
+function normalizeStoredRole(role: string | undefined, fallback: string) {
+  const value = String(role || "").trim().toLowerCase();
+  if (!value) return fallback;
+  if (["student", "teacher", "mentor", "leader", "admin", "ta"].includes(value)) return value;
+  if (value.includes("领导")) return "leader";
+  if (value.includes("带教")) return "mentor";
+  if (value.includes("教师")) return "teacher";
+  if (value.includes("管理员")) return "admin";
+  if (value.includes("助教")) return "ta";
+  return fallback;
 }
 
 /**

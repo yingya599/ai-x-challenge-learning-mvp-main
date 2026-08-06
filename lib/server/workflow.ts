@@ -19,7 +19,13 @@ import {
 import { enqueue, flush } from "./audit-outbox";
 import { notifyStudent, notifyGroup } from "./notify";
 import { getRedis } from "./redis";
+import {
+  assertTransition,
+  taskStateFor,
+  type SubmissionStatus,
+} from "./submission-state";
 import { updateStudentMemory } from "./ontology-memory";
+import { makeId } from "./ids";
 
 // T22: Redis-backed deduplication for submission idempotency.
 // Key: `${studentId}:${challengeId}:${githubRepoUrl}`, TTL: 60s.
@@ -321,9 +327,48 @@ export async function submitChallengeProject(
       routingStatus = "routed_to_both";
     }
 
-    // 6. Submission Task Agent writes the final Submission Record (red line)
+    // P0-2：所有入口使用同一状态机；即使中间状态未逐条写入飞书，
+    // 每次合法转换仍写入 AuditLogs，便于排查和对账。
+    const submissionId = makeId("sub");
+    let submissionStatus: SubmissionStatus = "submitted";
+    assertTransition(submissionStatus, "validating");
+    audit.log(SUBMISSION_TASK_AGENT, "submission_state_transition", submissionId, {
+      before_state: { status: submissionStatus },
+      after_state: { status: "validating" },
+    });
+    submissionStatus = "validating";
+
+    if (!githubCheck.repoExists) {
+      assertTransition(submissionStatus, "needs_revision");
+      audit.log(SUBMISSION_TASK_AGENT, "submission_state_transition", submissionId, {
+        before_state: { status: submissionStatus },
+        after_state: { status: "needs_revision" },
+      });
+      submissionStatus = "needs_revision";
+    } else {
+      assertTransition(submissionStatus, "checked");
+      audit.log(SUBMISSION_TASK_AGENT, "submission_state_transition", submissionId, {
+        before_state: { status: submissionStatus },
+        after_state: { status: "checked" },
+      });
+      submissionStatus = "checked";
+
+      const routedStatus: SubmissionStatus =
+        routingStatus === "routed_to_teacher"
+          ? "pending_teacher_review"
+          : "pending_review";
+      assertTransition(submissionStatus, routedStatus);
+      audit.log(SUBMISSION_TASK_AGENT, "submission_state_transition", submissionId, {
+        before_state: { status: submissionStatus },
+        after_state: { status: routedStatus },
+      });
+      submissionStatus = routedStatus;
+    }
+
+    // 6. Submission Task Agent writes the canonical Submission state.
     const submission = await createSubmissionWithAgentFields(
       {
+        submission_id: submissionId,
         student_id: student.student_id,
         student_name: student.name,
         challenge_id: challenge.challenge_id,
@@ -335,7 +380,8 @@ export async function submitChallengeProject(
         aar_text: input.aarText,
         self_evaluation_text: input.selfEvaluationText,
         github_check_result: JSON.stringify(githubCheck, null, 2),
-        status: githubCheck.repoExists ? "checked" : "needs_revision",
+        status: submissionStatus,
+        task_state: taskStateFor(submissionStatus),
         is_public: input.isPublic,
         submitted_at: new Date().toISOString(),
       },
@@ -348,7 +394,7 @@ export async function submitChallengeProject(
         audit_log_pointer: audit.traceId,
         review_mode: reviewMode,
         routing_status: routingStatus,
-        review_status: routingStatus === "routed_to_teacher" ? "pending_teacher_review" : routingStatus,
+        review_status: submissionStatus,
         system_validation_status: githubCheck.repoExists ? "passed" : "failed",
         routed_to_teacher_agent_id: routingStatus === "routed_to_teacher" ? REVIEW_TASK_AGENT : "",
         github_branch: input.githubBranch || githubCheck.defaultBranch || "",
@@ -370,7 +416,7 @@ export async function submitChallengeProject(
       last_submission: {
         submission_id: submission.submission_id,
         challenge_id: challenge.challenge_id,
-        status: "submitted",
+        status: submissionStatus,
         ts: new Date().toISOString(),
       },
     }).catch(() => {});

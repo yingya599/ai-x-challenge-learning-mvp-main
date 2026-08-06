@@ -5,6 +5,9 @@ import { teacherFinalizeReview } from "@/lib/server/review-workflow";
 import * as feishu from "@/lib/server/feishu";
 import { notifyStudent } from "@/lib/server/notify";
 import { isStaff, can } from "@/lib/server/rbac";
+import { effectiveTeacherEvaluationIds } from "@/lib/server/evaluation-policy";
+import { isMentor } from "@/lib/server/rbac";
+import { getInternRows } from "@/lib/server/task-platform";
 
 // GET /api/evaluations — list evaluations
 //   student: peer-review assignments where I am the evaluator (pending + done)
@@ -28,7 +31,10 @@ export async function GET(request: Request) {
         (e) => e.evaluator_type === "peer" && e.evaluator_id === principal.person,
       );
     }
-    // Staff: see all (no filter)
+    if (isMentor(principal) || principal.role === "ta") {
+      const visibleIds = new Set((await getInternRows(principal)).map((student) => student.student_id));
+      evaluations = evaluations.filter((evaluation) => visibleIds.has(evaluation.student_id));
+    }
 
     // T05: N+1 fix — fetch all submissions once, build Map for lookup
     const subIds = Array.from(new Set(evaluations.map((e) => e.submission_id).filter(Boolean)));
@@ -41,6 +47,7 @@ export async function GET(request: Request) {
       if (sub) titles[sid] = { project_title: sub.project_title, student_name: sub.student_name };
     }
 
+    const effectiveTeacherIds = effectiveTeacherEvaluationIds(evaluations);
     const items = evaluations.map((e) => ({
       evaluation_id: e.evaluation_id,
       submission_id: e.submission_id,
@@ -52,6 +59,9 @@ export async function GET(request: Request) {
       feedback: e.feedback,
       created_at: e.created_at,
       pending: !e.feedback,
+      is_effective:
+        e.evaluator_type !== "teacher" ||
+        effectiveTeacherIds.has(e.evaluation_id),
       project_title: titles[e.submission_id]?.project_title || "",
       submitter_name: titles[e.submission_id]?.student_name || "",
     }));
@@ -152,7 +162,6 @@ export async function POST(request: Request) {
 
     // ---- Teacher review ----
     // T05: Use isStaff() instead of role-specific checks
-    // T05: admin can also perform teacher final review
     const isAgentChannel = principal.role === "agent";
     if (isAgentChannel) {
       return NextResponse.json(
@@ -193,22 +202,36 @@ export async function POST(request: Request) {
       );
     }
 
-    const submission = await feishu.getSubmissionById(submissionId);
-    if (!submission || !submission.recordId) {
-      return NextResponse.json({ ok: false, error: "提交记录不存在" }, { status: 404 });
+    if (isMentor(principal) || principal.role === "ta") {
+      const submission = await feishu.getSubmissionById(submissionId);
+      if (!submission) return NextResponse.json({ ok: false, error: "提交记录不存在" }, { status: 404 });
+      const visibleIds = new Set((await getInternRows(principal)).map((student) => student.student_id));
+      if (!visibleIds.has(submission.student_id)) {
+        return NextResponse.json({ ok: false, error: "不能验收其他带教负责的实习生任务" }, { status: 403 });
+      }
     }
 
     const result = await teacherFinalizeReview({
       submissionId,
-      submissionRecordId: submission.recordId,
-      studentId: submission.student_id,
-      challengeId: submission.challenge_id,
       action,
       score: scoreNum,
       feedback: String(feedback),
+      reviewerId: principal.person,
     });
 
-    return NextResponse.json(result, { status: result.ok ? 200 : 400 });
+    const responseStatus = result.ok
+      ? 200
+      : result.errorCode === "NOT_FOUND"
+        ? 404
+        : result.errorCode === "CONFLICT" || result.errorCode === "INVALID_TRANSITION"
+          ? 409
+          : result.errorCode === "SERVICE_UNAVAILABLE"
+            ? 503
+            : result.errorCode === "INVALID_INPUT"
+              ? 400
+              : 500;
+
+    return NextResponse.json(result, { status: responseStatus });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "评审失败" },
