@@ -18,6 +18,7 @@ import {
   TrendingUp,
   Lightbulb,
   AlertCircle,
+  RotateCcw,
 } from "lucide-react";
 import { fetchSubmissionById, type SubmissionListItem, type EvaluationData } from "@/lib/api";
 import { formatTime } from "@/lib/format";
@@ -88,6 +89,8 @@ export default function SubmissionDetailPage() {
   const StatusIcon = status.icon;
   const githubRepo = realSub.github_repo_url?.replace(/^https?:\/\/github\.com\//, "") || "";
   const scores = parseScores(aiEval?.scores_json);
+  const revisionState = `${realSub.status || ""} ${realSub.task_state || ""}`.toLowerCase();
+  const needsRevision = revisionState.includes("revision") || revisionState.includes("returned");
 
   return (
     <div className="space-y-6">
@@ -99,7 +102,7 @@ export default function SubmissionDetailPage() {
 
       {/* 标题栏 */}
       <div className="rounded-xl border border-gray-200 bg-white p-6">
-        <div className="flex items-start justify-between">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-bold text-gray-900">{realSub.project_title}</h1>
@@ -116,6 +119,15 @@ export default function SubmissionDetailPage() {
               )}
             </div>
           </div>
+          {needsRevision && realSub.task_id && (
+            <Link
+              href={`/tasks/${encodeURIComponent(realSub.task_id)}`}
+              className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-700"
+            >
+              <RotateCcw className="h-4 w-4" />
+              去修改并重新提交
+            </Link>
+          )}
         </div>
       </div>
 

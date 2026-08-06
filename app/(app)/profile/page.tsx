@@ -29,6 +29,22 @@ import {
 } from "@/lib/api";
 import type { PortfolioItem } from "@/lib/data";
 
+function roleLabel(role?: string) {
+  if (role === "student" || role === "agent") return "实习生";
+  if (role === "teacher" || role === "mentor" || role === "ta") return "带教";
+  if (role === "leader") return "领导";
+  if (role === "admin") return "系统管理员";
+  return "未识别身份";
+}
+
+function submissionStatusLabel(submission: SubmissionListItem) {
+  const state = `${submission.status || ""} ${submission.task_state || ""}`.toLowerCase();
+  if (state.includes("accepted") || state.includes("completed")) return "已通过";
+  if (state.includes("revision")) return "需修改";
+  if (state.includes("review") || state.includes("pending")) return "待带教验收";
+  return "已提交";
+}
+
 export default function ProfilePage() {
   const [user, setUser] = useState<{ person: string; role: string; name?: string } | null>(null);
   const [submissions, setSubmissions] = useState<SubmissionListItem[]>([]);
@@ -195,7 +211,7 @@ export default function ProfilePage() {
                 {user?.name || "未登录"}
               </h1>
               <span className="inline-flex items-center rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700">
-                {user?.role === "teacher" ? "教师" : "学生"}
+                {roleLabel(user?.role)}
               </span>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-gray-500">
@@ -208,6 +224,8 @@ export default function ProfilePage() {
         </div>
       </div>
 
+      {/* Agent API Key 与个人 Bot 仅供系统管理员调试，普通业务用户不展示。 */}
+      {user?.role === "admin" && <>
       {/* T08: API Key — generate on demand, shown only once */}
       <div className="rounded-xl border border-gray-200 bg-white p-6">
         <div className="flex items-center gap-2 mb-3">
@@ -326,6 +344,7 @@ export default function ProfilePage() {
           绑定后提交作业、收到评审等通知将通过你自己的 Bot 发送，而不是系统 Bot。
         </p>
       </div>
+      </>}
 
       {/* 统计 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -348,7 +367,7 @@ export default function ProfilePage() {
         <h2 className="text-lg font-semibold text-gray-900">提交记录</h2>
         {submissions.length === 0 ? (
           <div className="mt-3 rounded-xl border border-gray-200 bg-gray-50 p-8 text-center text-sm text-gray-500">
-            暂无提交，<Link href="/submit" className="text-primary-600 hover:underline">去提交</Link>
+            暂无提交，<Link href="/tasks" className="text-primary-600 hover:underline">查看我的任务</Link>
           </div>
         ) : (
           <div className="mt-3 space-y-2">
@@ -367,13 +386,13 @@ export default function ProfilePage() {
                     <span className="text-sm font-medium text-gray-700">{s.score_total}分</span>
                   )}
                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                    s.status === "accepted" || s.task_state === "COMPLETED"
+                    submissionStatusLabel(s) === "已通过"
                       ? "bg-green-50 text-green-700"
-                      : s.status === "needs_revision"
+                      : submissionStatusLabel(s) === "需修改"
                       ? "bg-red-50 text-red-700"
                       : "bg-gray-100 text-gray-600"
                   }`}>
-                    {s.task_state || s.status || "处理中"}
+                    {submissionStatusLabel(s)}
                   </span>
                 </div>
               </Link>
