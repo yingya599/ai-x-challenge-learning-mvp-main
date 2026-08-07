@@ -1,17 +1,24 @@
 import { NextResponse } from "next/server";
 import { getPrincipal } from "@/lib/server/principal";
-import { canAccessManagement, isLeader, isMentor } from "@/lib/server/rbac";
+import { canAccessManagement, getBoundStudentId, isLeader, isMentor } from "@/lib/server/rbac";
 import { createPersonalTask, getTeacherById } from "@/lib/server/feishu";
-import { getInternRows, getVisibleTasks, invalidateTaskPlatformCache } from "@/lib/server/task-platform";
+import { getInternDetail, getInternRows, getVisibleTasks, invalidateTaskPlatformCache } from "@/lib/server/task-platform";
 
 export async function GET() {
   const principal = await getPrincipal();
   if (!principal) return NextResponse.json({ ok: false, error: "请先登录" }, { status: 401 });
   try {
+    const studentId = getBoundStudentId(principal);
+    const detail = studentId ? await getInternDetail(principal, studentId) : null;
     return NextResponse.json({
       ok: true,
       tasks: await getVisibleTasks(principal),
       storage_ready: Boolean(process.env.FEISHU_TASKS_TABLE_ID),
+      growth: detail ? {
+        job_direction: detail.job_direction,
+        summary: detail.summary,
+        capability: detail.capability,
+      } : undefined,
     });
   } catch (error) {
     return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "任务加载失败" }, { status: 500 });
@@ -51,7 +58,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ ok: false, error: "所选带教人不存在或不是带教角色" }, { status: 400 });
       }
     }
-    const { evidence_requirements: evidenceRequirements = [], ...taskFields } = body;
+    const {
+      evidence_requirements: evidenceRequirements = [],
+      competency_ids_json: competencyIdsJson,
+      ...taskFields
+    } = body;
     const result = await createPersonalTask({
       ...taskFields,
       category_id: taskFields.category_id || `custom-${taskFields.job_direction}`,
@@ -63,6 +74,7 @@ export async function POST(request: Request) {
         priority: taskFields.priority || "medium",
         confidentiality: taskFields.confidentiality || "internal",
         status: taskFields.status || "assigned",
+        competency_ids_json: competencyIdsJson || "[]",
       }),
     });
     invalidateTaskPlatformCache();

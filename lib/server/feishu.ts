@@ -792,7 +792,7 @@ function normalizePersonalTask(record: { record_id: string; fields: Record<strin
     instructions_md: asString(field(f, "instructions_md")),
     acceptance_criteria: asString(field(f, "acceptance_criteria")),
     evidence_requirements_json: asString(field(f, "evidence_requirements_json")),
-    competency_ids_json: asString(field(f, "competency_ids_json")),
+    competency_ids_json: asString(field(f, "competency_ids_json") || config.competency_ids_json),
     start_date: asString(field(f, "start_date")),
     // Tasks 表是新建的独立业务表，直接兼容中文字段与旧英文键，
     // 避免飞书字段缓存更新期间把期限、优先级等误读为空。
@@ -852,14 +852,28 @@ export async function getPersonalTaskByRecordId(recordId: string) {
 export async function createPersonalTask(fields: Record<string, unknown>) {
   const tableId = requireEnv("FEISHU_TASKS_TABLE_ID");
   const taskId = asString(fields.task_id) || makeId("task");
+  const {
+    competency_ids_json: competencyIdsJson,
+    task_config_json: taskConfigJson,
+    ...recordFields
+  } = fields;
+  let taskConfig: Record<string, unknown> = {};
+  try {
+    const parsed = JSON.parse(asString(taskConfigJson) || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) taskConfig = parsed;
+  } catch { /* Ignore malformed config and rebuild a safe snapshot below. */ }
   const record = await createRecord(tableId, {
-    ...fields,
+    ...recordFields,
     task_id: taskId,
     is_public: false,
     status: fields.status || "assigned",
     risk_status: fields.risk_status || "normal",
     created_at: fields.created_at || new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    task_config_json: JSON.stringify({
+      ...taskConfig,
+      competency_ids_json: asString(competencyIdsJson) || asString(taskConfig.competency_ids_json) || "[]",
+    }),
   });
   return { task_id: taskId, recordId: record?.record_id };
 }

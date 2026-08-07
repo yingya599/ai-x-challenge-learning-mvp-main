@@ -47,11 +47,53 @@ const DEFAULT_COMPETENCIES: Competency[] = [
   { competency_id: "quant-risk", name: "风险收益与组合", job_direction: "quant", sort_order: 340 },
 ];
 
-const CATEGORY_TEMPLATES: Array<Omit<TaskCategory, "category_id">> = [
-  ...["经营收入预测", "经营结果分析", "专题问题诊断", "市场与竞品分析", "经营指标看板", "策略建议与汇报"].map((title) => ({ title, job_direction: "business_analysis" as const })),
-  ...["数据清洗与质量检查", "指标口径建设", "探索性数据分析", "实验与效果评估", "预测或分类分析", "数据看板与自动化"].map((title) => ({ title, job_direction: "data_analysis" as const })),
-  ...["市场数据处理", "因子研究", "策略回测", "风险收益分析", "组合优化", "量化研究报告"].map((title) => ({ title, job_direction: "quant" as const })),
-];
+type CategoryTemplate = {
+  title: string;
+  job_direction: JobDirection;
+  summary: string;
+  competency_ids: string[];
+};
+
+const TEMPLATE_DEFINITIONS: Record<JobDirection, Array<{ title: string; competency_ids: string[] }>> = {
+  business_analysis: [
+    { title: "经营收入预测", competency_ids: ["common-problem-definition", "ba-forecast", "common-delivery"] },
+    { title: "经营结果分析", competency_ids: ["common-problem-definition", "ba-diagnosis", "ba-storytelling"] },
+    { title: "专题问题诊断", competency_ids: ["common-problem-definition", "ba-diagnosis", "common-communication"] },
+    { title: "市场与竞品分析", competency_ids: ["ba-market", "common-problem-definition", "common-delivery"] },
+    { title: "经营指标看板", competency_ids: ["ba-diagnosis", "da-metrics", "common-delivery"] },
+    { title: "策略建议与汇报", competency_ids: ["ba-storytelling", "common-communication", "common-reflection"] },
+  ],
+  data_analysis: [
+    { title: "数据清洗与质量检查", competency_ids: ["da-quality", "common-delivery"] },
+    { title: "指标口径建设", competency_ids: ["da-metrics", "common-communication", "common-problem-definition"] },
+    { title: "探索性数据分析", competency_ids: ["da-analysis", "common-problem-definition", "common-delivery"] },
+    { title: "实验与效果评估", competency_ids: ["da-analysis", "da-metrics", "common-reflection"] },
+    { title: "预测或分类分析", competency_ids: ["da-analysis", "common-problem-definition", "common-delivery"] },
+    { title: "数据看板与自动化", competency_ids: ["da-automation", "da-quality", "common-delivery"] },
+  ],
+  quant: [
+    { title: "市场数据处理", competency_ids: ["quant-data", "common-delivery"] },
+    { title: "因子研究", competency_ids: ["quant-factor", "quant-data", "common-problem-definition"] },
+    { title: "策略回测", competency_ids: ["quant-backtest", "quant-data", "common-reflection"] },
+    { title: "风险收益分析", competency_ids: ["quant-risk", "quant-data", "common-communication"] },
+    { title: "组合优化", competency_ids: ["quant-risk", "quant-factor", "common-problem-definition"] },
+    { title: "量化研究报告", competency_ids: ["quant-factor", "quant-backtest", "common-communication"] },
+  ],
+};
+
+const TEMPLATE_SUMMARIES: Record<JobDirection, string> = {
+  business_analysis: "适合把真实经营问题整理成分析、诊断和汇报交付的首期任务模板。",
+  data_analysis: "适合从数据质量、指标、分析到自动化逐步建立交付能力的首期任务模板。",
+  quant: "适合覆盖市场数据、因子、回测与风险收益分析的首期任务模板。",
+};
+
+const CATEGORY_TEMPLATES: CategoryTemplate[] = (Object.keys(TEMPLATE_DEFINITIONS) as JobDirection[]).flatMap((job_direction) =>
+  TEMPLATE_DEFINITIONS[job_direction].map((item) => ({
+    ...item,
+    job_direction,
+    summary: TEMPLATE_SUMMARIES[job_direction],
+  })),
+);
 
 type RawTaskPlatformData = {
   allStudents: Student[];
@@ -159,6 +201,7 @@ function projectHistoricalTasks(
       objective: challenge?.objective,
       instructions_md: challenge?.instructions_md,
       acceptance_criteria: challenge?.rubric,
+      competency_ids_json: challenge?.competency_ids_json,
       due_date: challenge?.deadline,
       priority: "medium",
       confidentiality: "internal",
@@ -226,6 +269,38 @@ function submissionNeedsReview(submission: SubmissionRecord, teacherReviewedIds:
   return !["accepted", "completed", "returned", "revision"].some((value) => state.includes(value));
 }
 
+type CapabilityMaturity = "verified" | "practiced" | "untouched";
+
+export type TaskMatchRecommendation = {
+  category_id: string;
+  title: string;
+  summary?: string;
+  job_direction: JobDirection;
+  source_type?: TaskCategory["source_type"];
+  score: number;
+  fit: "high" | "medium" | "stretch";
+  reasons: string[];
+  gaps: string[];
+  competency_ids: string[];
+};
+
+export type CapabilityProfile = {
+  direction: JobDirection;
+  profile_completeness: number;
+  profile_signals: string[];
+  summary: string;
+  target_count: number;
+  practiced_count: number;
+  verified_count: number;
+  coverage: number;
+  items: Array<Competency & {
+    maturity: CapabilityMaturity;
+    evidence_count: number;
+    assessment_level?: CompetencyAssessment["level"];
+  }>;
+  recommended_tasks: TaskMatchRecommendation[];
+};
+
 function competencyProgress(
   student: Student,
   tasks: PersonalTask[],
@@ -238,28 +313,162 @@ function competencyProgress(
   const taskIds = new Set(tasks.map((task) => task.task_id));
   const studentSubs = submissions.filter((item) => item.student_id === student.student_id && (!item.task_id || taskIds.has(item.task_id)));
   const evals = acceptedEvaluations(evaluations, new Set(studentSubs.map((item) => item.submission_id)));
-  const practiced = new Set(tasks.flatMap((task) => parseJsonArray<string>(task.competency_ids_json)));
+  const practiceCounts = new Map<string, number>();
+  for (const task of tasks) {
+    for (const competencyId of parseJsonArray<string>(task.competency_ids_json)) {
+      practiceCounts.set(competencyId, (practiceCounts.get(competencyId) || 0) + 1);
+    }
+  }
   const verified = new Set<string>();
+  const assessmentLevels = new Map<string, CompetencyAssessment["level"]>();
   for (const evaluation of evals) {
     for (const assessment of parseJsonArray<CompetencyAssessment>(evaluation.competency_assessment_json)) {
-      if (assessment.level === "meets" || assessment.level === "outstanding") verified.add(assessment.competency_id);
+      assessmentLevels.set(assessment.competency_id, assessment.level);
+      if (assessment.level === "meets" || assessment.level === "outstanding") {
+        verified.add(assessment.competency_id);
+      }
     }
   }
   // Historical accepted tasks count as practice, but never auto-verify competency.
   return {
     direction,
     targetCount: targets.length,
-    practicedCount: practiced.size,
-    verifiedCount: verified.size,
-    coverage: targets.length ? Math.round((verified.size / targets.length) * 100) : 0,
+    practicedCount: targets.filter((competency) => practiceCounts.has(competency.competency_id)).length,
+    verifiedCount: targets.filter((competency) => verified.has(competency.competency_id)).length,
+    coverage: targets.length ? Math.round((targets.filter((competency) => verified.has(competency.competency_id)).length / targets.length) * 100) : 0,
     items: targets.map((competency) => ({
       ...competency,
-      maturity: verified.has(competency.competency_id)
+      maturity: (verified.has(competency.competency_id)
         ? "verified"
-        : practiced.has(competency.competency_id)
+        : practiceCounts.has(competency.competency_id)
           ? "practiced"
-          : "untouched",
+          : "untouched") as CapabilityMaturity,
+      evidence_count: (practiceCounts.get(competency.competency_id) || 0) + (assessmentLevels.has(competency.competency_id) ? 1 : 0),
+      assessment_level: assessmentLevels.get(competency.competency_id),
     })),
+  };
+}
+
+function challengeToCategory(challenge: Challenge): TaskCategory {
+  return {
+    category_id: challenge.challenge_id,
+    title: challenge.title,
+    job_direction: challenge.job_direction || "data_analysis",
+    summary: challenge.brief,
+    instructions_md: challenge.instructions_md || [challenge.objective, challenge.deliverables, challenge.rubric].filter(Boolean).join("\n\n"),
+    acceptance_criteria: challenge.rubric,
+    evidence_requirements_json: challenge.evidence_requirements_json,
+    competency_ids_json: challenge.competency_ids_json,
+    source_type: challenge.source_type || "historical_challenge",
+    status: challenge.status,
+    github_repo: challenge.github_repo,
+  };
+}
+
+function categoryCatalog(challenges: Challenge[]) {
+  const templates = CATEGORY_TEMPLATES.map((item, index): TaskCategory => ({
+    title: item.title,
+    job_direction: item.job_direction,
+    competency_ids_json: JSON.stringify(item.competency_ids),
+    category_id: `template-${item.job_direction}-${index + 1}`,
+    source_type: "template",
+    status: "template",
+  }));
+  return [...templates, ...challenges.map(challengeToCategory)];
+}
+
+function categoryCompetencyIds(category: TaskCategory) {
+  const configured = parseJsonArray<string>(category.competency_ids_json);
+  if (configured.length) return configured;
+  const defaults: Record<JobDirection, string[]> = {
+    business_analysis: ["common-problem-definition", "ba-diagnosis", "common-delivery"],
+    data_analysis: ["common-problem-definition", "da-analysis", "common-delivery"],
+    quant: ["quant-data", "quant-factor", "common-delivery"],
+  };
+  return defaults[category.job_direction];
+}
+
+function buildCapabilityProfile(
+  student: Student,
+  tasks: PersonalTask[],
+  submissions: SubmissionRecord[],
+  evaluations: EvaluationRecord[],
+  competencies: Competency[],
+  challenges: Challenge[],
+): CapabilityProfile {
+  const progress = competencyProgress(student, tasks, submissions, evaluations, competencies);
+  const profileFields = [
+    student.position,
+    student.department,
+    student.school,
+    student.major,
+    student.grade,
+    student.portfolio_url,
+    student.github_username,
+  ];
+  const profileCompleteness = Math.round((profileFields.filter(Boolean).length / profileFields.length) * 100);
+  const profileSignals = [
+    student.position ? `岗位：${student.position}` : "",
+    student.major ? `专业：${student.major}` : "",
+    student.school ? `学校：${student.school}` : "",
+    student.github_username || student.portfolio_url ? "已有作品或代码入口" : "",
+    progress.verifiedCount ? `已通过带教验收的能力：${progress.verifiedCount} 项` : "暂无带教验收能力证据",
+  ].filter(Boolean);
+
+  const targetById = new Map(progress.items.map((item) => [item.competency_id, item]));
+  const candidates = categoryCatalog(challenges)
+    .filter((category) => category.source_type !== "historical_challenge" && category.job_direction === progress.direction)
+    .reduce<TaskCategory[]>((result, category) => {
+      if (!result.some((item) => item.title === category.title)) result.push(category);
+      return result;
+    }, []);
+
+  const recommendedTasks = candidates.map((category): TaskMatchRecommendation => {
+    const competencyIds = categoryCompetencyIds(category);
+    const matchedItems = competencyIds.map((id) => targetById.get(id)).filter(Boolean) as CapabilityProfile["items"];
+    const maturityScore: Record<CapabilityMaturity, number> = { verified: 100, practiced: 78, untouched: 58 };
+    const competencyScore = matchedItems.length
+      ? Math.round(matchedItems.reduce((sum, item) => sum + maturityScore[item.maturity], 0) / matchedItems.length)
+      : 60;
+    const evidenceScore = Math.min(8, matchedItems.filter((item) => item.evidence_count > 0).length * 2);
+    const score = Math.min(98, 50 + Math.round(competencyScore * 0.4) + evidenceScore);
+    const gaps = matchedItems.filter((item) => item.maturity === "untouched").map((item) => item.name);
+    const practiced = matchedItems.filter((item) => item.maturity === "practiced").length;
+    const verified = matchedItems.filter((item) => item.maturity === "verified").length;
+    const reasons = ["岗位方向一致"];
+    if (verified) reasons.push(`${verified} 项能力已有验收证据`);
+    if (practiced) reasons.push(`${practiced} 项能力已有任务练习`);
+    if (gaps.length) reasons.push(`可顺带补齐：${gaps.slice(0, 2).join("、")}`);
+    return {
+      category_id: category.category_id,
+      title: category.title,
+      summary: category.summary,
+      job_direction: category.job_direction,
+      source_type: category.source_type,
+      score,
+      fit: score >= 85 ? "high" : score >= 70 ? "medium" : "stretch",
+      reasons,
+      gaps,
+      competency_ids: competencyIds,
+    };
+  }).sort((a, b) => b.score - a.score).slice(0, 6);
+
+  const verifiedNames = progress.items.filter((item) => item.maturity === "verified").slice(0, 3).map((item) => item.name);
+  const summary = progress.verifiedCount
+    ? `当前已通过验收 ${progress.verifiedCount}/${progress.targetCount} 项目标能力${verifiedNames.length ? `，包括${verifiedNames.join("、")}` : ""}。优先发布高匹配任务，再用中匹配任务拉开成长梯度。`
+    : "当前还没有带教验收能力证据，建议先从高匹配模板开始，并在验收时补充能力评价。";
+
+  return {
+    direction: progress.direction,
+    profile_completeness: profileCompleteness,
+    profile_signals: profileSignals,
+    summary,
+    target_count: progress.targetCount,
+    practiced_count: progress.practicedCount,
+    verified_count: progress.verifiedCount,
+    coverage: progress.coverage,
+    items: progress.items,
+    recommended_tasks: recommendedTasks,
   };
 }
 
@@ -354,6 +563,7 @@ export async function getInternDetail(principal: ServicePrincipal, studentId: st
   const submissions = data.submissions.filter((submission) => submission.student_id === studentId);
   const submissionIds = new Set(submissions.map((submission) => submission.submission_id));
   const evaluations = data.evaluations.filter((evaluation) => submissionIds.has(evaluation.submission_id));
+  const capability = buildCapabilityProfile(student, tasks, submissions, evaluations, data.competencies, data.challenges);
   return {
     student,
     job_direction: directionForStudent(student),
@@ -361,6 +571,7 @@ export async function getInternDetail(principal: ServicePrincipal, studentId: st
     tasks,
     submissions,
     evaluations,
+    capability,
     summary: {
       daysOnJob: dayDiff(student.internship_start_date),
       completionRate: tasks.length ? Math.round((tasks.filter((task) => task.status === "accepted").length / tasks.length) * 100) : 0,
@@ -371,26 +582,7 @@ export async function getInternDetail(principal: ServicePrincipal, studentId: st
 
 export async function getTaskCategoriesView(principal: ServicePrincipal) {
   const data = await loadTaskPlatformData(principal);
-  const stored = data.challenges.map((challenge): TaskCategory => ({
-    category_id: challenge.challenge_id,
-    title: challenge.title,
-    job_direction: challenge.job_direction || "data_analysis",
-    summary: challenge.brief,
-    instructions_md: challenge.instructions_md || [challenge.objective, challenge.deliverables, challenge.rubric].filter(Boolean).join("\n\n"),
-    acceptance_criteria: challenge.rubric,
-    evidence_requirements_json: challenge.evidence_requirements_json,
-    competency_ids_json: challenge.competency_ids_json,
-    source_type: challenge.source_type || "historical_challenge",
-    status: challenge.status,
-    github_repo: challenge.github_repo,
-  }));
-  const templates = CATEGORY_TEMPLATES.map((item, index): TaskCategory => ({
-    ...item,
-    category_id: `template-${item.job_direction}-${index + 1}`,
-    source_type: "template",
-    status: "template",
-  }));
-  return [...templates, ...stored].map((category) => {
+  return categoryCatalog(data.challenges).map((category) => {
     const tasks = data.tasks.filter((task) => task.category_id === category.category_id);
     const students = new Set(tasks.map((task) => task.student_id));
     const completed = tasks.filter((task) => task.status === "accepted");
