@@ -32,7 +32,7 @@ const navItems: NavItem[] = [
   { href: "/management", label: "管理工作台", icon: LayoutDashboard, roles: ["teacher", "mentor", "leader", "ta"] },
   { href: "/management/interns", label: "实习生", icon: Users, roles: ["teacher", "mentor", "leader", "ta"] },
   { href: "/management/assignments", label: "带教分配", icon: UserRoundCog, roles: ["leader"] },
-  { href: "/management/task-categories", label: "任务类别", icon: Library, roles: ["leader"] },
+  { href: "/management/task-categories", label: "任务模板仓库", icon: Library, roles: ["teacher", "mentor", "leader", "ta"] },
   { href: "/management/tasks", label: "个人任务", icon: ListTodo, roles: ["teacher", "mentor", "leader", "ta"] },
   { href: "/management/reviews", label: "任务验收", icon: ClipboardCheck, roles: ["teacher", "mentor", "leader", "ta"] },
   { href: "/dashboard", label: "我的概览", icon: LayoutDashboard, roles: ["student"] },

@@ -11,6 +11,13 @@ import {
   type EvaluationRecord,
   type SubmissionRecord,
 } from "./feishu";
+import {
+  buildInternAssessment,
+  inferTaskProfile,
+  matchTaskToIntern,
+  type InternAssessment,
+  type TaskMatchResult,
+} from "./intern-assessment";
 import type {
   Challenge,
   Competency,
@@ -279,8 +286,12 @@ export type TaskMatchRecommendation = {
   source_type?: TaskCategory["source_type"];
   score: number;
   fit: "high" | "medium" | "stretch";
+  allocation: TaskMatchResult["allocation"];
+  allocation_label: string;
   reasons: string[];
   gaps: string[];
+  risks: string[];
+  mentor_action: string;
   competency_ids: string[];
 };
 
@@ -299,6 +310,8 @@ export type CapabilityProfile = {
     assessment_level?: CompetencyAssessment["level"];
   }>;
   recommended_tasks: TaskMatchRecommendation[];
+  assessment: InternAssessment;
+  ai_assessment: InternAssessment["ai_assessment"];
 };
 
 function competencyProgress(
@@ -415,7 +428,14 @@ function buildCapabilityProfile(
     progress.verifiedCount ? `已通过带教验收的能力：${progress.verifiedCount} 项` : "暂无带教验收能力证据",
   ].filter(Boolean);
 
-  const targetById = new Map(progress.items.map((item) => [item.competency_id, item]));
+  const assessment = buildInternAssessment({
+    student,
+    direction: progress.direction,
+    tasks,
+    submissions,
+    evaluations,
+    capability_items: progress.items,
+  });
   const candidates = categoryCatalog(challenges)
     .filter((category) => category.source_type !== "historical_challenge" && category.job_direction === progress.direction)
     .reduce<TaskCategory[]>((result, category) => {
@@ -424,51 +444,46 @@ function buildCapabilityProfile(
     }, []);
 
   const recommendedTasks = candidates.map((category): TaskMatchRecommendation => {
-    const competencyIds = categoryCompetencyIds(category);
-    const matchedItems = competencyIds.map((id) => targetById.get(id)).filter(Boolean) as CapabilityProfile["items"];
-    const maturityScore: Record<CapabilityMaturity, number> = { verified: 100, practiced: 78, untouched: 58 };
-    const competencyScore = matchedItems.length
-      ? Math.round(matchedItems.reduce((sum, item) => sum + maturityScore[item.maturity], 0) / matchedItems.length)
-      : 60;
-    const evidenceScore = Math.min(8, matchedItems.filter((item) => item.evidence_count > 0).length * 2);
-    const score = Math.min(98, 50 + Math.round(competencyScore * 0.4) + evidenceScore);
-    const gaps = matchedItems.filter((item) => item.maturity === "untouched").map((item) => item.name);
-    const practiced = matchedItems.filter((item) => item.maturity === "practiced").length;
-    const verified = matchedItems.filter((item) => item.maturity === "verified").length;
-    const reasons = ["岗位方向一致"];
-    if (verified) reasons.push(`${verified} 项能力已有验收证据`);
-    if (practiced) reasons.push(`${practiced} 项能力已有任务练习`);
-    if (gaps.length) reasons.push(`可顺带补齐：${gaps.slice(0, 2).join("、")}`);
+    const profile = inferTaskProfile({ category });
+    const match = matchTaskToIntern(assessment, profile);
     return {
       category_id: category.category_id,
       title: category.title,
       summary: category.summary,
       job_direction: category.job_direction,
       source_type: category.source_type,
-      score,
-      fit: score >= 85 ? "high" : score >= 70 ? "medium" : "stretch",
-      reasons,
-      gaps,
-      competency_ids: competencyIds,
+      score: match.score,
+      fit: match.score >= 85 ? "high" : match.score >= 70 ? "medium" : "stretch",
+      allocation: match.allocation,
+      allocation_label: match.allocation_label,
+      reasons: match.reasons,
+      gaps: match.gaps,
+      risks: match.risks,
+      mentor_action: match.mentor_action,
+      competency_ids: profile.competency_ids,
     };
   }).sort((a, b) => b.score - a.score).slice(0, 6);
 
-  const verifiedNames = progress.items.filter((item) => item.maturity === "verified").slice(0, 3).map((item) => item.name);
-  const summary = progress.verifiedCount
-    ? `当前已通过验收 ${progress.verifiedCount}/${progress.targetCount} 项目标能力${verifiedNames.length ? `，包括${verifiedNames.join("、")}` : ""}。优先发布高匹配任务，再用中匹配任务拉开成长梯度。`
-    : "当前还没有带教验收能力证据，建议先从高匹配模板开始，并在验收时补充能力评价。";
+  assessment.ai_assessment.recommendedTasks = recommendedTasks.map((task) => ({
+    taskId: task.category_id,
+    matchScore: task.score,
+    reason: task.reasons[1] || task.reasons[0] || "与当前岗位能力模型匹配",
+    mentorAction: task.mentor_action,
+  }));
 
   return {
     direction: progress.direction,
     profile_completeness: profileCompleteness,
     profile_signals: profileSignals,
-    summary,
+    summary: assessment.summary,
     target_count: progress.targetCount,
     practiced_count: progress.practicedCount,
     verified_count: progress.verifiedCount,
     coverage: progress.coverage,
     items: progress.items,
     recommended_tasks: recommendedTasks,
+    assessment,
+    ai_assessment: assessment.ai_assessment,
   };
 }
 
@@ -578,6 +593,46 @@ export async function getInternDetail(principal: ServicePrincipal, studentId: st
       pendingTasks: tasks.filter((task) => !["accepted", "cancelled"].includes(task.status || "")).length,
     },
   };
+}
+
+export async function getInternTaskMatch(
+  principal: ServicePrincipal,
+  studentId: string,
+  input: {
+    category_id?: string;
+    title?: string;
+    description?: string;
+    job_direction?: JobDirection;
+    competency_ids?: string[];
+  },
+) {
+  const data = await loadTaskPlatformData(principal);
+  const student = data.students.find((item) => item.student_id === studentId);
+  if (!student) return null;
+  const tasks = data.tasks.filter((task) => task.student_id === studentId);
+  const submissions = data.submissions.filter((submission) => submission.student_id === studentId);
+  const submissionIds = new Set(submissions.map((submission) => submission.submission_id));
+  const evaluations = data.evaluations.filter((evaluation) => submissionIds.has(evaluation.submission_id));
+  const progress = competencyProgress(student, tasks, submissions, evaluations, data.competencies);
+  const assessment = buildInternAssessment({
+    student,
+    direction: progress.direction,
+    tasks,
+    submissions,
+    evaluations,
+    capability_items: progress.items,
+  });
+  const category = input.category_id
+    ? categoryCatalog(data.challenges).find((item) => item.category_id === input.category_id) || null
+    : null;
+  const taskProfile = inferTaskProfile({
+    category,
+    title: input.title,
+    description: input.description,
+    job_direction: input.job_direction || category?.job_direction || progress.direction,
+    competency_ids: input.competency_ids,
+  });
+  return matchTaskToIntern(assessment, taskProfile);
 }
 
 export async function getTaskCategoriesView(principal: ServicePrincipal) {

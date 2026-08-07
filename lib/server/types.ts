@@ -160,6 +160,30 @@ export type CompetencyAssessment = {
   note?: string;
 };
 
+export type AiAssessmentRole = "business_analyst" | "data_analyst" | "quant";
+
+export type AiAssessmentConfidence = "low" | "medium" | "high";
+
+export type AiInternAssessmentResult = {
+  internId: string;
+  role: AiAssessmentRole;
+  overallScore: number;
+  level: string;
+  strengths: string[];
+  weaknesses: string[];
+  recommendedTasks: Array<{
+    taskId: string;
+    matchScore: number;
+    reason: string;
+    mentorAction: string;
+  }>;
+  confidence: AiAssessmentConfidence;
+  evidenceConfidence: AiAssessmentConfidence;
+  evidence: string[];
+  source: "rule_based" | "ai";
+  generatedAt: string;
+};
+
 export type RubricDimension = {
   id: string;
   label: string;

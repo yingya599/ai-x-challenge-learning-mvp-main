@@ -1,6 +1,7 @@
 import { optionalEnv } from "./env";
 import type {
   AiEvaluation,
+  AiInternAssessmentResult,
   PersonalTask,
   PortfolioDescription,
   RubricDimension,
@@ -242,6 +243,16 @@ export async function generateTaskPlan(task: PersonalTask, allowExternalAi = fal
     console.warn("[ai/task-plan] using demo fallback:", error instanceof Error ? error.message : String(error));
     return fallback;
   }
+}
+
+export async function generateInternAssessment(input: {
+  ruleBased: AiInternAssessmentResult;
+  allowExternalAi?: boolean;
+}): Promise<AiInternAssessmentResult> {
+  // Reserved integration point: later send only the structured assessment evidence
+  // to the approved model and validate the response back into this same shape.
+  // The first version intentionally stays deterministic and local.
+  return input.ruleBased;
 }
 
 const taskEvaluationSchema = z.object({

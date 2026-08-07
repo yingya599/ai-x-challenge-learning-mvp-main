@@ -78,7 +78,7 @@ export default function ManagementPage() {
       <section className="rounded-2xl border border-gray-200 bg-white p-6">
         <div className="flex items-center justify-between">
           <div><h2 className="font-semibold text-gray-900">三类岗位任务进度</h2><p className="mt-1 text-sm text-gray-500">按岗位查看参与人数、任务数量和任务完成率。</p></div>
-          {data.scope === "global" && <Link href="/management/task-categories" className="text-sm font-medium text-primary-600">查看任务类别</Link>}
+          <Link href="/management/task-categories" className="text-sm font-medium text-primary-600">查看任务模板仓库</Link>
         </div>
         <div className="mt-5 grid gap-4 lg:grid-cols-3">
           {data.directions.map((item) => (
